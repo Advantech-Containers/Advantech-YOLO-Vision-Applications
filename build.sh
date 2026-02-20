@@ -73,4 +73,4 @@ else
 fi
 
 echo "Connecting to container..."
-docker exec -it advantech-yolo11-vision bash
+docker exec -it advantech-yolo-vision bash
