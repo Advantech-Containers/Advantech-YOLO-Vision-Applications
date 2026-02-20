@@ -69,7 +69,7 @@ services:
       - ./models:/advantech/models:rw
       - ./data:/advantech/data:rw
       - ./results:/advantech/results:rw
-      - ./wise-bench.sh:/advantech/wise-bench.sh:ro
+      - ./wise-bench.sh:/advantech/wise-bench.sh:rw
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - ${XAUTHORITY:-$HOME/.Xauthority}:/tmp/.docker.xauth:rw
       - /tmp:/tmp:rw
