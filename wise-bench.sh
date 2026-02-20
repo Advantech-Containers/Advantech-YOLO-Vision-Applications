@@ -135,7 +135,7 @@ if python3 -c "import cv2" 2>/dev/null; then
     OPENCV_VERSION=$(python3 -c "import cv2; print(cv2.__version__)" 2>/dev/null || echo "Unknown")
     OPENCV_CUDA=$(python3 -c "import cv2; print(hasattr(cv2, 'cuda'))" 2>/dev/null || echo "False")
     if [[ "$OPENCV_CUDA" == "True" ]]; then
-        OPENCV_DEVICES=$(nvidia-smi -L | wc -l 2>/dev/null || echo "0")
+        OPENCV_DEVICES=$(nvidia-smi -L 2>/dev/null | wc -l)
     fi
 fi
 print_table_row "OpenCV Version" "$OPENCV_VERSION"
