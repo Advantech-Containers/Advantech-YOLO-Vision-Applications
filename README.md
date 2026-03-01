@@ -284,30 +284,30 @@ python3 src/advantech-yolo.py -h
 For scripted or automated use, specify options directly.
 
 ```bash
-python3 src/advantech-yolo.py --model yolo11n.engine --source 0 --task detection
+python3 src/advantech-yolo.py --model yolo11n.engine --input 0 --task detect
 ```
 
 ```bash
-python3 src/advantech-yolo.py --model yolo11n-seg.engine --source /path/to/your/video_file --task segmentation
+python3 src/advantech-yolo.py --model yolo11n-seg.engine --input /path/to/your/video_file --task segment
 ```
 
 ```bash
-python3 src/advantech-yolo.py --model yolo11n-cls.pt --source rtsp://your-camera-ip:port/ --task classification
+python3 src/advantech-yolo.py --model yolo11n-cls.pt --input rtsp://your-camera-ip:port/ --task classify
 ```
 
 **Available Options:**
 
 | Option | Description | Default |
 |:-------|:------------|:--------|
-| `--model` | Model file path | Required |
-| `--source` | Input source (device number, URL, or file path) | Required |
-| `--task` | detection, classification, or segmentation | detection |
-| `--format` | pt, onnx, or trt | Auto-detected |
-| `--conf` | Confidence threshold | 0.25 |
-| `--iou` | IoU threshold for NMS | 0.45 |
-| `--save-video` | Save output to file | False |
-| `--output` | Output directory | ./output |
-| `--no-display` | Disable visualization | False |
+| `--model` | Model file path | `yolo11n.pt` |
+| `--input` | Input source (device number, URL, or file path) | `0` |
+| `--task` | Task type: `detect`, `segment`, or `classify` | `detect` |
+| `--conf` | Confidence threshold | `0.25` |
+| `--iou` | IoU threshold for NMS | `0.45` |
+| `--device` | Device to run on: `0` for GPU, `cpu` for CPU | `0` |
+| `--show` | Display results in window | `False` |
+| `--save` | Save results to output directory | `False` |
+| `--save-dir` | Directory to save results | `/advantech/results` |
 
 ---
 
