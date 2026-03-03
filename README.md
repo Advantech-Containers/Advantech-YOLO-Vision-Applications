@@ -167,6 +167,13 @@ Run a basic test to confirm hardware acceleration is working.
 python3 -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA Available: {torch.cuda.is_available()}')"
 ```
 
+Expected output:
+
+```
+PyTorch: 2.5.0a0+872d972e41.nv24.08
+CUDA Available: True
+```
+
 ### Step 6: Verify AI Accelerator (Optional)
 
 Verify that the AI accelerator is properly configured and accessible. Use the Wise-Bench tool to run benchmarks on your device.
@@ -179,6 +186,8 @@ chmod +x wise-bench.sh
 
 The script runs comprehensive tests to validate GPU functionality and report performance metrics. Expected output confirms CUDA availability, memory allocation success, and benchmark completion.
 
+![Wise-Bench Output](data/wisebench.png)
+
 ---
 
 ## Model Management
@@ -190,6 +199,8 @@ The model loader detects your hardware and recommends appropriate models.
 ```bash
 python3 src/advantech-coe-model-load.py
 ```
+
+![Model Load Menu Demo](data/load.gif)
 
 The utility presents an interactive menu. Select a model by entering its number.
 
@@ -211,6 +222,8 @@ Convert models to optimized formats for deployment.
 ```bash
 python3 src/advantech-coe-model-export.py
 ```
+
+![Model Export Menu Demo](data/export.gif)
 
 The export utility guides you through three selections (Task, Size, Format).
 
@@ -279,6 +292,36 @@ For more details related to CLI parameters:
 
 ```bash
 python3 src/advantech-yolo.py -h
+```
+
+Expected output:
+
+```
+usage: advantech-yolo.py [-h] [--input INPUT] [--model MODEL]
+                         [--task {detect,segment,classify}]
+                         [--conf CONF] [--iou IOU] [--device DEVICE]
+                         [--show] [--save] [--save-dir SAVE_DIR]
+
+YOLO11 Vision Application for Advantech Edge AI Devices
+
+options:
+  -h, --help            show this help message and exit
+  --input INPUT         Input source: 0 for webcam, path to video/image, or RTSP URL
+  --model MODEL         YOLO11 model path (e.g., yolo11n.pt, yolo11n-seg.pt)
+  --task {detect,segment,classify}
+                        Task type: detect, segment, or classify
+  --conf CONF           Confidence threshold (default: 0.25)
+  --iou IOU             IoU threshold for NMS (default: 0.45)
+  --device DEVICE       Device to run on: 0 for GPU, cpu for CPU
+  --show                Display results in window
+  --save                Save results to output directory
+  --save-dir SAVE_DIR   Directory to save results (default: /advantech/results)
+
+Examples:
+  python3 advantech-yolo.py
+  python3 advantech-yolo.py --input 0 --task detect --model yolo11n.pt --show
+  python3 advantech-yolo.py --input data/test.mp4 --task segment --model yolo11n-seg.pt --show --save
+  python3 advantech-yolo.py --input 0 --task classify --model yolo11n-cls.pt --show
 ```
 
 For scripted or automated use, specify options directly.
