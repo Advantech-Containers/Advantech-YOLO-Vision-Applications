@@ -2,23 +2,160 @@
 """
 YOLO11 Vision Application for Advantech Edge AI Devices
 ========================================================
-Version:      1.6.0
+Version:      2.0.0
 Author:       Samir Singh <samir.singh@advantech.com>
 Created:      October 9, 2025
-Updated:      October 28, 2025
+Updated:      March 1, 2026
 Description:  Complete YOLO11 application supporting detection, segmentation, and classification
 
 This script demonstrates how to use YOLO11 for multiple vision tasks with hardware
-acceleration on Advantech edge AI devices.
+acceleration on Advantech edge AI devices.  Run without arguments to launch the
+interactive menu (Task → Model → Source → Display options).
 
 Copyright (c) 2025 Advantech Corporation. All rights reserved.
 """
 
 import argparse
+import os
+import sys
 from pathlib import Path
 from ultralytics import YOLO
 import cv2
 import torch
+
+__version__ = "2.0.0"
+__author__ = "Advantech Co. Ltd"
+__build_date__ = "2025-12"
+__copyright__ = "Copyright (c) 2025 Advantech Corporation. All Rights Reserved."
+
+
+class Colors:
+    GREEN  = '\033[92m'
+    YELLOW = '\033[93m'
+    RED    = '\033[91m'
+    CYAN   = '\033[96m'
+    ENDC   = '\033[0m'
+    BOLD   = '\033[1m'
+
+
+def print_banner():
+    banner = f"""
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║     █████╗ ██████╗ ██╗   ██╗ █████╗ ███╗   ██╗████████╗███████╗ ██████╗██╗  ██╗  ║
+║    ██╔══██╗██╔══██╗██║   ██║██╔══██╗████╗  ██║╚══██╔══╝██╔════╝██╔════╝██║  ██║  ║
+║    ███████║██║  ██║╚██╗ ██╔╝███████║██╔██╗ ██║   ██║   █████╗  ██║     ███████║  ║
+║    ██╔══██║██║  ██║ ╚████╔╝ ██╔══██║██║╚██╗██║   ██║   ██╔══╝  ██║     ██╔══██║  ║
+║    ██║  ██║██████╔╝  ╚██╔╝  ██║  ██║██║ ╚████║   ██║   ███████╗╚██████╗██║  ██║  ║
+║    ╚═╝  ╚═╝╚═════╝    ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝ ╚═════╝╚═╝  ╚═╝  ║
+║                     YOLO11 Inference Pipeline v{__version__}                             ║
+╠══════════════════════════════════════════════════════════════════════════════════╣
+║  Author: {__author__:<18}  Build: {__build_date__:<14}                               ║
+╠══════════════════════════════════════════════════════════════════════════════════╣
+║  {__copyright__}             ║
+╚══════════════════════════════════════════════════════════════════════════════════╝"""
+    print(banner)
+
+
+def _get_choice(prompt, valid, default="1"):
+    try:
+        choice = input(f"{prompt} [{default}]: ").strip() or default
+        return choice if choice in valid else default
+    except (EOFError, KeyboardInterrupt):
+        print("\n\nOperation cancelled.")
+        sys.exit(0)
+
+
+def _get_input(prompt, default=""):
+    try:
+        value = input(f"{prompt} [{default}]: ").strip()
+        return value if value else default
+    except (EOFError, KeyboardInterrupt):
+        print("\n\nOperation cancelled.")
+        sys.exit(0)
+
+
+def interactive_mode():
+    """Run interactive configuration and inference."""
+    os.system('clear' if os.name != 'nt' else 'cls')
+    print_banner()
+
+    # --- Task ---
+    print(f"\n{Colors.BOLD}[1] Detection  [2] Segmentation  [3] Classification{Colors.ENDC}")
+    task_choice = _get_choice("Select task", ["1", "2", "3"], "1")
+    task_map = {"1": "detect", "2": "segment", "3": "classify"}
+    task = task_map[task_choice]
+
+    model_hints = {
+        "detect":   "yolo11n.pt / yolo11n.engine",
+        "segment":  "yolo11n-seg.pt / yolo11n-seg.engine",
+        "classify": "yolo11n-cls.pt",
+    }
+    default_models = {
+        "detect":   "yolo11n.pt",
+        "segment":  "yolo11n-seg.pt",
+        "classify": "yolo11n-cls.pt",
+    }
+
+    # --- Model ---
+    model_path = _get_input(
+        f"Model path ({model_hints[task]})",
+        default_models[task]
+    )
+
+    # --- Source ---
+    print(f"\n{Colors.BOLD}[1] Webcam  [2] RTSP  [3] Video File{Colors.ENDC}")
+    src_choice = _get_choice("Select source", ["1", "2", "3"], "1")
+    if src_choice == "1":
+        device_idx = _get_input("Camera device index", "0")
+        source = int(device_idx) if device_idx.isdigit() else device_idx
+    elif src_choice == "2":
+        source = _get_input("RTSP URL", "rtsp://your-camera-ip:port/")
+    else:
+        source = _get_input("Video file path", "data/test.mp4")
+
+    # --- Display / Save ---
+    show_choice = _get_choice("Show display window? (y/n)", ["y", "n", "Y", "N"], "y")
+    show = show_choice.lower() == "y"
+
+    save_choice = _get_choice("Save results to disk? (y/n)", ["y", "n", "Y", "N"], "n")
+    save = save_choice.lower() == "y"
+
+    save_dir = '/advantech/results'
+    if save:
+        save_dir = _get_input("Output directory", save_dir)
+
+    conf_str = _get_input("Confidence threshold", "0.25")
+    try:
+        conf = float(conf_str)
+    except ValueError:
+        conf = 0.25
+
+    # --- Run ---
+    print(f"\n{Colors.CYAN}ℹ Configuration{Colors.ENDC}")
+    print(f"  Task:       {task.upper()}")
+    print(f"  Model:      {model_path}")
+    print(f"  Source:     {source}")
+    print(f"  Confidence: {conf}")
+    print(f"  Show:       {show}")
+    print(f"  Save:       {save}")
+    if save:
+        print(f"  Save dir:   {save_dir}")
+
+    # Build a namespace that run_inference() expects
+    class _Args:
+        pass
+    args = _Args()
+    args.model    = model_path
+    args.input    = str(source)
+    args.task     = task
+    args.conf     = conf
+    args.iou      = 0.45
+    args.device   = '0'
+    args.show     = show
+    args.save     = save
+    args.save_dir = save_dir
+
+    run_inference(args)
 
 def check_gpu():
     """Check if GPU is available"""
@@ -56,53 +193,8 @@ def validate_task_model(task, model_path):
 
     return True
 
-def main():
-    parser = argparse.ArgumentParser(
-        description='YOLO11 Vision Application for Advantech Edge AI Devices',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  Object Detection:
-    python3 advantech-yolo.py --input data/test.mp4 --task detect --model yolo11n.pt --show
-    python3 advantech-yolo.py --input 0 --task detect --model yolo11n.pt --show --save
-
-  Instance Segmentation:
-    python3 advantech-yolo.py --input 0 --task segment --model yolo11n-seg.pt --conf 0.3 --show
-    python3 advantech-yolo.py --input data/test.mp4 --task segment --model yolo11s-seg.pt --show --save
-
-  Classification:
-    python3 advantech-yolo.py --input data/image.jpg --task classify --model yolo11n-cls.pt --save
-    python3 advantech-yolo.py --input 0 --task classify --model yolo11s-cls.pt --show
-        """
-    )
-
-    # Input/Output arguments
-    parser.add_argument('--input', type=str, default='0',
-                        help='Input source: 0 for webcam, path to video file, or image')
-    parser.add_argument('--model', type=str, default='yolo11n.pt',
-                        help='YOLO11 model path (e.g., yolo11n.pt, yolo11s-seg.pt, yolo11n-cls.pt)')
-    parser.add_argument('--task', type=str, default='detect',
-                        choices=['detect', 'segment', 'classify'],
-                        help='Task type: detect, segment, or classify')
-
-    # Inference parameters
-    parser.add_argument('--conf', type=float, default=0.25,
-                        help='Confidence threshold (default: 0.25)')
-    parser.add_argument('--iou', type=float, default=0.45,
-                        help='IoU threshold for NMS (default: 0.45)')
-    parser.add_argument('--device', type=str, default='0',
-                        help='Device to run on: 0 for GPU, cpu for CPU')
-
-    # Display and save options
-    parser.add_argument('--show', action='store_true',
-                        help='Display results in window')
-    parser.add_argument('--save', action='store_true',
-                        help='Save results to output directory')
-    parser.add_argument('--save-dir', type=str, default='/advantech/results',
-                        help='Directory to save results (default: /advantech/results)')
-
-    args = parser.parse_args()
-
+def run_inference(args):
+    """Execute YOLO11 inference with the given args namespace."""
     # Check GPU availability
     gpu_available = check_gpu()
 
@@ -115,9 +207,9 @@ Examples:
     validate_task_model(args.task, args.model)
 
     # Print configuration
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("YOLO11 Vision Application - Advantech Edge AI")
-    print("="*70)
+    print("=" * 70)
     print(f"Task:       {args.task.upper()}")
     print(f"Model:      {args.model}")
     print(f"Input:      {args.input}")
@@ -127,7 +219,7 @@ Examples:
         print(f"IoU:        {args.iou}")
     print(f"Show:       {args.show}")
     print(f"Save:       {args.save}")
-    print("="*70 + "\n")
+    print("=" * 70 + "\n")
 
     # Load model
     print(f"Loading YOLO11 model: {args.model}")
@@ -135,7 +227,6 @@ Examples:
         model = YOLO(args.model)
         print("✓ Model loaded successfully")
 
-        # Verify model task matches requested task
         model_task = model.task
         if model_task != args.task:
             print(f"⚠ Warning: Model task is '{model_task}' but you requested '{args.task}'")
@@ -148,9 +239,8 @@ Examples:
         return
 
     # Convert input to int if it's a digit (for webcam)
-    source = int(args.input) if args.input.isdigit() else args.input
+    source = int(args.input) if str(args.input).isdigit() else args.input
 
-    # Prepare inference parameters based on task
     predict_params = {
         'source': source,
         'conf': args.conf,
@@ -158,44 +248,33 @@ Examples:
         'show': args.show,
         'save': args.save,
         'project': args.save_dir,
-        'stream': True  # Use streaming for video/webcam
+        'stream': True,
     }
-
-    # Add IoU only for detection and segmentation tasks
     if args.task in ['detect', 'segment']:
         predict_params['iou'] = args.iou
 
-    # Run inference
     print(f"\nRunning {args.task} inference on: {source}")
     print("Press 'q' to quit\n")
 
+    frame_count = 0
     try:
         results = model.predict(**predict_params)
-
-        # Process results based on task
-        frame_count = 0
         for result in results:
             frame_count += 1
 
             if args.task == 'detect':
-                # Object Detection
                 if result.boxes is not None and len(result.boxes) > 0:
                     num_detections = len(result.boxes)
                     print(f"Frame {frame_count}: {num_detections} objects detected")
-
-                    # Print detected classes
                     classes = result.boxes.cls.cpu().numpy()
                     names = result.names
                     unique_classes = set([names[int(c)] for c in classes])
                     print(f"  Classes: {', '.join(sorted(unique_classes))}")
 
             elif args.task == 'segment':
-                # Instance Segmentation
                 if result.masks is not None and len(result.masks) > 0:
                     num_segments = len(result.masks)
                     print(f"Frame {frame_count}: {num_segments} instances segmented")
-
-                    # Print segmented classes
                     if result.boxes is not None:
                         classes = result.boxes.cls.cpu().numpy()
                         names = result.names
@@ -203,14 +282,11 @@ Examples:
                         print(f"  Classes: {', '.join(sorted(unique_classes))}")
 
             elif args.task == 'classify':
-                # Classification
                 if result.probs is not None:
                     top1_idx = result.probs.top1
                     top1_conf = result.probs.top1conf.item()
                     class_name = result.names[top1_idx]
                     print(f"Image {frame_count}: {class_name} ({top1_conf:.2%} confidence)")
-
-                    # Show top 5 predictions
                     if hasattr(result.probs, 'top5'):
                         print("  Top 5 predictions:")
                         for idx in result.probs.top5:
@@ -218,7 +294,6 @@ Examples:
                             name = result.names[idx]
                             print(f"    {name}: {conf:.2%}")
 
-            # Break on 'q' key press if showing results
             if args.show and cv2.waitKey(1) & 0xFF == ord('q'):
                 print("\nStopping inference...")
                 break
@@ -235,5 +310,55 @@ Examples:
     if args.save:
         print(f"✓ Results saved to: {args.save_dir}")
 
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='YOLO11 Vision Application for Advantech Edge AI Devices',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python3 advantech-yolo.py                                                 # Interactive mode
+  python3 advantech-yolo.py --input 0 --task detect --model yolo11n.pt --show
+  python3 advantech-yolo.py --input data/test.mp4 --task segment --model yolo11n-seg.pt --show --save
+  python3 advantech-yolo.py --input 0 --task classify --model yolo11n-cls.pt --show
+        """
+    )
+    parser.add_argument('--input', type=str, default=None,
+                        help='Input source: 0 for webcam, path to video/image, or RTSP URL')
+    parser.add_argument('--model', type=str, default=None,
+                        help='YOLO11 model path (e.g., yolo11n.pt, yolo11n-seg.pt)')
+    parser.add_argument('--task', type=str, default='detect',
+                        choices=['detect', 'segment', 'classify'],
+                        help='Task type: detect, segment, or classify')
+    parser.add_argument('--conf', type=float, default=0.25,
+                        help='Confidence threshold (default: 0.25)')
+    parser.add_argument('--iou', type=float, default=0.45,
+                        help='IoU threshold for NMS (default: 0.45)')
+    parser.add_argument('--device', type=str, default='0',
+                        help='Device to run on: 0 for GPU, cpu for CPU')
+    parser.add_argument('--show', action='store_true',
+                        help='Display results in window')
+    parser.add_argument('--save', action='store_true',
+                        help='Save results to output directory')
+    parser.add_argument('--save-dir', type=str, default='/advantech/results',
+                        help='Directory to save results (default: /advantech/results)')
+
+    args = parser.parse_args()
+
+    # No --model or --input provided → interactive mode
+    if args.model is None and args.input is None:
+        interactive_mode()
+        return
+
+    # Apply defaults for CLI mode if only one was omitted
+    if args.model is None:
+        args.model = 'yolo11n.pt'
+    if args.input is None:
+        args.input = '0'
+
+    run_inference(args)
+
+
 if __name__ == '__main__':
     main()
+

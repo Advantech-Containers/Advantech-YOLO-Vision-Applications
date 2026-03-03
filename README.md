@@ -253,7 +253,7 @@ Launch the main application with menu-driven configuration.
 python3 src/advantech-yolo.py
 ```
 
-The application prompts for task type, model format, model path, input source, and output options. Press `q` in the display window or `Ctrl+C` to stop.
+The application prompts for task type, model path, input source, confidence threshold, and display/save options. Press `q` in the display window or `Ctrl+C` to stop.
 
 ---
 
@@ -299,8 +299,8 @@ python3 src/advantech-yolo.py --model yolo11n-cls.pt --input rtsp://your-camera-
 
 | Option | Description | Default |
 |:-------|:------------|:--------|
-| `--model` | Model file path | `yolo11n.pt` |
-| `--input` | Input source (device number, URL, or file path) | `0` |
+| `--model` | Model file path; omit (with `--input`) to launch interactive mode | `yolo11n.pt` |
+| `--input` | Input source (device number, URL, or file path); omit (with `--model`) to launch interactive mode | `0` |
 | `--task` | Task type: `detect`, `segment`, or `classify` | `detect` |
 | `--conf` | Confidence threshold | `0.25` |
 | `--iou` | IoU threshold for NMS | `0.45` |
