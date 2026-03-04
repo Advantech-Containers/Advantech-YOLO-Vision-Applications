@@ -130,7 +130,7 @@ cd Advantech-YOLO-Vision-Applications
 Grant execute permissions to the setup scripts.
 
 ```bash
-chmod +x *.sh
+sudo chmod +x *.sh
 ```
 
 ### Step 3: Start the Container
@@ -183,6 +183,7 @@ Verify that the AI accelerator is properly configured and accessible. Use the Wi
 chmod +x wise-bench.sh
 ./wise-bench.sh
 ```
+
 
 The script runs comprehensive tests to validate GPU functionality and report performance metrics. Expected output confirms CUDA availability, memory allocation success, and benchmark completion.
 
