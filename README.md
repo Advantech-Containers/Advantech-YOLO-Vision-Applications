@@ -29,7 +29,7 @@ The toolkit automatically detects device capabilities and configures optimal set
 | Memory | 4GB, 8GB, 16GB or 32GB shared |
 | JetPack | 5.x |
 
-For troubleshooting, see the [Troubleshooting Wiki](https://github.com/Advantech-EdgeSync-Containers/GPU-Passthrough-on-NVIDIA-Jetson/wiki/Advantech-Containers'-Troubleshooting-Guide).
+For troubleshooting, see the [Troubleshooting Wiki](https://github.com/Advantech-Containers/GPU-Passthrough-on-NVIDIA-Jetson/wiki/Advantech-Containers'-Troubleshooting-Guide).
 
 ---
 
@@ -414,6 +414,7 @@ For issues, submit to [GitHub Issues](https://github.com/Advantech-EdgeSync-Cont
 ---
 
 Advantech Corporation — Center of Excellence
+
 
 
 
