@@ -29,7 +29,7 @@ The toolkit automatically detects device capabilities and configures optimal set
 | Memory | 8GB, 16GB, 32GB, or 64GB shared |
 | JetPack | 6.x |
 
-For troubleshooting, see the [Troubleshooting Guide](TROUBLESHOOTING_YOLO11.md).
+For troubleshooting, see the [Troubleshooting Guide](troubleshooting_yolo11.md).
 
 ---
 
@@ -40,6 +40,7 @@ For troubleshooting, see the [Troubleshooting Guide](TROUBLESHOOTING_YOLO11.md).
 - [Quick Start](#quick-start)
 - [Model Management](#model-management)
 - [Running Inference](#running-inference)
+- [Unattended Edge Demo](#unattended-edge-demo)
 - [Export Formats](#export-formats)
 - [Performance Guidelines](#performance-guidelines)
 - [Directory Structure](#directory-structure)
@@ -104,7 +105,7 @@ Ensure the following prerequisites are met:
 
 For installation instructions, refer to the [Installation Guide](https://github.com/yqlbu/jetson-packages-family/blob/main/README.md).
 
-Before proceeding, ensure that your system meets the required [general-required-packages-on-host-system](#general-required-packages-on-host-system). If you encounter any issues or inconsistencies in your environment, please consult our [Troubleshooting Guide](TROUBLESHOOTING_YOLO11.md) for solutions and to verify that all prerequisites are properly satisfied.
+Before proceeding, ensure that your system meets the required [general-required-packages-on-host-system](#general-required-packages-on-host-system). If you encounter any issues or inconsistencies in your environment, please consult our [Troubleshooting Guide](troubleshooting_yolo11.md) for solutions and to verify that all prerequisites are properly satisfied.
 
 - Ensure the following components are installed on your device along with other packages mentioned in the [general-required-packages-on-host-system](#general-required-packages-on-host-system):
   - **Docker**
@@ -353,6 +354,60 @@ python3 src/advantech-yolo.py --model yolo11n-cls.pt --input rtsp://your-camera-
 | `--save` | Save results to output directory | `False` |
 | `--save-dir` | Directory to save results | `/advantech/results` |
 
+> **`--show` requires a one-line fix inside the container.** The image ships
+> `opencv-python-headless` in `/usr/local`, which shadows JetPack's
+> GTK-enabled OpenCV in `/usr/lib`. Without the override below, `--show`
+> fails with *"The function is not implemented. Rebuild the library with
+> GTK+ 2.x support"*:
+>
+> ```bash
+> export PYTHONPATH=/usr/lib/python3.10/dist-packages
+> export YOLO_AUTOINSTALL=false
+> ```
+>
+> The second variable is not optional — ultralytics reinstalls
+> `opencv-python` at import and re-shadows the fix without it. X11 forwarding
+> must also be in place (`DISPLAY`, `/tmp/.X11-unix`, and a valid Xauthority);
+> see [docs/cv-container-overview.md](docs/cv-container-overview.md).
+
+---
+
+## Unattended Edge Demo
+
+The applications above are **interactive** — they prompt for task, model, and
+source, so they need a TTY. For a showroom or trade-show display you want a
+container that starts on its own, loops a clip fullscreen on the device's
+screen, and publishes what it detects.
+
+That is a separate deliverable, documented in full at
+**[docs/cv-container-overview.md](docs/cv-container-overview.md)**.
+
+| | |
+|:--|:--|
+| **What it does** | Loops a video fullscreen on the device screen with live detections, and publishes results to an on-device MQTT broker |
+| **Deployed via** | WEDA container-management API (also runs under plain `docker compose`) |
+| **Image** | `harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.5.0` |
+| **Runner** | `src/demo-od-loop.py` + `src/mqtt_publisher.py` |
+| **Stack** | `docker/weda-stack-od-demo.yml` (mosquitto broker + demo) |
+
+**MQTT topics** (base `advantech/<DEVICE_ID>/vision`):
+
+| topic | retained | payload |
+|:------|:---------|:--------|
+| `<base>/status` | yes | `online` / `offline` (Last Will and Testament) |
+| `<base>/meta` | yes | model, source clip, thresholds |
+| `<base>/detections` | no | per-interval summary: counts, confidences, boxes |
+
+```bash
+mosquitto_sub -h <device-ip> -t 'advantech/#' -v
+```
+
+> Two things the demo doc explains that are easy to get wrong: the base image
+> ships `opencv-python-headless`, which shadows JetPack's GTK OpenCV and makes
+> `cv2.imshow` fail inside the container; and a YOLO26 checkpoint loaded under
+> ultralytics 8.3.x is silently mis-parsed, producing confident nonsense with
+> no error. Both have documented one-line fixes.
+
 ---
 
 ## Export Formats
@@ -407,15 +462,26 @@ Advantech-YOLO-Vision-Applications/
 ├── src/
 │   ├── advantech-coe-model-load.py    # Model download utility
 │   ├── advantech-coe-model-export.py  # Model export utility
-│   ├── advantech-yolo.py              # Main inference application
-│   ├── advantech_core.py              # Inference engine implementations
-│   └── advantech_classes.py           # Class label definitions
+│   ├── advantech-yolo.py              # Main inference application (interactive)
+│   ├── demo-od-loop.py                # Unattended looping demo runner
+│   └── mqtt_publisher.py              # MQTT detection telemetry publisher
+├── docker/
+│   ├── Dockerfile.demo-od             # 1.0.0  base demo image (COPY-only)
+│   ├── Dockerfile.demo-od-ul84        # 1.2.0  ultralytics 8.4 (YOLO26 support)
+│   ├── Dockerfile.demo-od-jar         # 1.3.0  fine-tuned single-class jar model
+│   ├── Dockerfile.demo-od-bottle      # 1.4.0  bottling-line clip, stock weights
+│   ├── Dockerfile.demo-od-mqtt        # 1.5.0  adds MQTT telemetry
+│   ├── entrypoint-demo.sh             # Waits for X, then starts the demo
+│   └── weda-stack-od-demo.yml         # WEDA compose stack (broker + demo)
+├── docs/
+│   └── jar-detection-demo.md          # Edge demo: build, fine-tune, deploy, MQTT
 ├── data/                               # Sample data and outputs
 ├── models/                             # Model storage (created at runtime)
 ├── docker-compose.yml                  # Container configuration
 ├── build.sh                            # Container launch script
+├── troubleshooting_yolo11.md           # Troubleshooting guide
 ├── LICENSE                             # GPL-3.0 license
-└── README_YOLO11.md                    # This file
+└── README.md                           # This file
 ```
 
 ---
@@ -485,7 +551,7 @@ pip3 install ultralytics==8.3.0 --no-deps
 
 ## Support
 
-For documentation and troubleshooting, visit the [Troubleshooting Guide](TROUBLESHOOTING_YOLO11.md).
+For documentation and troubleshooting, visit the [Troubleshooting Guide](troubleshooting_yolo11.md).
 
 For issues, submit to [GitHub Issues](https://github.com/Advantech-EdgeSync-Containers/Advantech-YOLO-Vision-Applications/issues).
 
