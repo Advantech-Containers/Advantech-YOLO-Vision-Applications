@@ -1,0 +1,55 @@
+# ==========================================================================
+# Advantech bottling-line detection demo -- stock-model image
+# ==========================================================================
+# Version:      1.4.0
+# Created:      July 19, 2026
+#
+# Plays OD_bottle_2.mp4 (2560x1440, 8s, 478 frames) on repeat with live
+# detections.  Unlike the jar demo this needs NO fine-tuning: COCO already
+# knows `bottle`, and the clip is detected cleanly out of the box.
+#
+# Measured over all 478 frames on the device GPU, conf 0.40:
+#
+#   yolo11n   100% frame coverage, 6.06 boxes/frame, 23.8 FPS   <-- default
+#   yolo26n   100% frame coverage, 4.97 boxes/frame, 22.4 FPS
+#   yolo11l   100% frame coverage, 7.26 boxes/frame, 14.3 FPS
+#
+# yolo26n class split @0.40: bottle x2308 (4.83/frame, max 0.96, mean 0.82)
+# plus 68 stray `wine glass` -- effectively a clean single-class overlay.
+#
+# Both yolo11n and yolo26n are baked in.  Switch by editing MODEL_PATH in the
+# WEDA stack; no rebuild required.  yolo26n needs the ultralytics 8.4 base,
+# which is why this builds FROM 1.2.0-ul84 rather than 1.0.0.
+#
+# Build ON THE DEVICE:
+#   docker build -f docker/Dockerfile.demo-od-bottle \
+#     -t harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.4.0 .
+#
+# Copyright (c) 2026 Advantech Corporation. All rights reserved.
+# ==========================================================================
+
+FROM harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.2.0-ul84
+
+LABEL version="1.4.0" \
+      description="Bottling-line detection demo on OD_bottle_2.mp4, stock COCO weights"
+
+COPY data/cv_demo_clips/OD_bottle_2.mp4 /advantech/data/OD_bottle_2.mp4
+COPY models/yolo26n.pt                  /advantech/models/yolo26n.pt
+
+# yolo11n is the measured best on this clip: more boxes per frame than yolo26n
+# and marginally faster.  yolo11n.pt is already present from the 1.0.0 layer.
+ENV VIDEO_PATH=/advantech/data/OD_bottle_2.mp4 \
+    MODEL_PATH=/advantech/models/yolo11n.pt \
+    CONF_THRESHOLD=0.40
+
+RUN python3 -c "\
+import os, cv2; \
+from ultralytics import YOLO; \
+v = os.environ['VIDEO_PATH']; \
+assert os.path.isfile(v), 'demo clip missing'; \
+c = cv2.VideoCapture(v); \
+n = int(c.get(cv2.CAP_PROP_FRAME_COUNT)); \
+assert n > 0, 'demo clip unreadable'; \
+print('clip frames', n); \
+[YOLO('/advantech/models/%s.pt' % m) for m in ('yolo11n', 'yolo26n')]; \
+print('IMAGE CHECKS PASSED')"

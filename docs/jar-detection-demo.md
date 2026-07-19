@@ -1,33 +1,60 @@
-# YOLO26 Jar-Detection Edge Demo — Build, Fine-Tune, Deploy
+# YOLO Vision Edge Demo — Build, Fine-Tune, Deploy, Publish
 
 **Target device:** `adlk.edgedevice.2` — Advantech EPC-R7300, Jetson Orin, JetPack 6.2 (R36.4.4), WEDA device id `74fe488d5d54`
 **Deployed via:** WEDA container-management API, org `Kevin.Chien@advantech.com.tw`, tenant `central`, cluster `weda-sit-k3s.weda.dev`
-**Status:** live — stack `yolo-od-demo` v2, image `harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.3.0`
+**Status:** live — stack `yolo-od-demo` **v4**, image `harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.5.0`
 
 An unattended object-detection demo: a looping video plays fullscreen on the
-device's own screen with live YOLO detections drawn over it. The detector is a
-YOLO26-nano fine-tuned into a single-class `jar` model, because stock COCO
-weights cannot see the product.
+device's own screen with live YOLO detections drawn over it, and detection
+results are published to an on-device MQTT broker (§7).
+
+Two demos are documented here, both deployable from the same stack config:
+
+| demo | clip | model | fine-tuning | quality |
+|:-----|:-----|:------|:------------|:--------|
+| **bottling line** (deployed) | `OD_bottle_2.mp4` | stock `yolo11n` | none needed | 100% coverage, 6.06 boxes/frame |
+| jar filling line | `OD_Jar.mp4` | fine-tuned `jar26n` | 232 pseudo-labelled frames | 53% coverage, 1.94 boxes/frame |
+
+The bottling demo is the better one and needs no training — COCO already knows
+`bottle`. The jar demo required fine-tuning because COCO has no `jar` class and
+mislabels the product; §5 documents that pipeline, which is the reusable part
+for any clip whose subject COCO does not know.
 
 ---
 
 ## 1. Results
 
-Measured on 150 sequential frames of `OD_Jar.mp4`, on the device GPU.
 *Coverage* = share of frames with at least one box; it is the number that
-decides whether the demo looks alive.
+decides whether the demo looks alive. **Measure over the whole clip** — an
+early sequential window can be far denser than the rest and will flatter the
+result (measuring only the first 150 of 495 frames of the sushi clip reported
+100% where the true figure was 73%).
+
+**Deployed demo — `OD_bottle_2.mp4`, all 478 frames:**
 
 | model | conf | coverage | boxes/frame | FPS |
 |:------|-----:|---------:|------------:|----:|
-| stock `yolo11n` (original demo) | 0.25 | 0% | 0.00 | 24.6 |
+| **`yolo11n` (deployed)** | **0.40** | **100%** | **6.06** | **23.8** |
+| `yolo26n` | 0.40 | 100% | 4.97 | 22.4 |
+| `yolo11l` | 0.40 | 100% | 7.26 | 14.3 |
+
+Class split at the deployed setting: `bottle` x2898 (6.06/frame, max 0.95,
+mean 0.75, min 0.40) — a single class, no false positives anywhere in the clip.
+Box count is stable at 5-8 per frame, which is why the overlay does not strobe.
+`yolo26n` is also baked into the image; switch via `MODEL_PATH`, no rebuild.
+
+**Jar demo — `OD_Jar.mp4`, for comparison:**
+
+| model | conf | coverage | boxes/frame | FPS |
+|:------|-----:|---------:|------------:|----:|
+| stock `yolo11n` | 0.25 | 0% | 0.00 | 24.6 |
 | stock `yolo26n` | 0.20 | 21% | 0.31 | 22.6 |
-| **`jar26n` fine-tuned (deployed)** | **0.40** | **53%** | **1.94** | **23.3** |
+| `jar26n` fine-tuned | 0.40 | 53% | 1.94 | 23.3 |
 
 Validation of the fine-tuned model: **mAP50 0.972, mAP50-95 0.899, P 0.934, R 0.918.**
-
-Detection quality is flat between conf 0.25 and 0.50 (55% → 53% coverage),
-which is the signature of a properly calibrated model — the deployed threshold
-of 0.40 buys a cleaner overlay at no measured cost in recall.
+Its quality is flat between conf 0.25 and 0.50 (55% → 53% coverage), the
+signature of a properly calibrated model — 0.40 buys a cleaner overlay at no
+measured cost in recall.
 
 ### Why stock models failed
 
@@ -287,7 +314,134 @@ version bump — the old container is removed before the new one is scheduled.
 
 ---
 
-## 7. Verifying a deployment
+## 7. MQTT detection telemetry
+
+The stack runs an `eclipse-mosquitto:2` broker beside the demo and publishes
+detection results to it. Both services use host networking, so the broker is
+reachable on the device at **`127.0.0.1:1883`** (and on the device's LAN
+address from elsewhere).
+
+`mosquitto 2.x` refuses remote connections under its default config, so the
+service starts with `-c /mosquitto-no-auth.conf` — a stock file inside the
+image that enables an anonymous listener on 1883. This avoids bind-mounting a
+config file, which a WEDA-deployed stack cannot easily supply.
+
+### 7.1 Topics
+
+Base defaults to `advantech/<DEVICE_ID>/vision`, overridable via
+`MQTT_TOPIC_BASE`. On the deployed device that resolves to
+`advantech/74fe488d5d54/vision`.
+
+| topic | retained | QoS | when | payload |
+|:------|:---------|:----|:-----|:--------|
+| `<base>/status` | yes | 1 | on connect / on death | `online` \| `offline` |
+| `<base>/meta` | yes | 1 | once, on connect | JSON, run configuration |
+| `<base>/detections` | no | `MQTT_QOS` (0) | every `MQTT_INTERVAL_SEC` (1 s) | JSON, detection summary |
+
+`<base>/status` carries a **Last Will and Testament**: the broker publishes
+`offline` automatically if the container dies without a clean shutdown. A
+subscriber can therefore distinguish a dead publisher from one that simply has
+nothing to report — with a plain `online` flag those two states look identical.
+
+Both retained topics mean a subscriber that connects late immediately learns
+the device state and run configuration without waiting for the next event.
+
+### 7.2 `detections` message schema
+
+```jsonc
+{
+  "timestamp":   "2026-07-19T16:54:47.949Z",  // ISO-8601 UTC, millisecond precision
+  "deviceId":    "74fe488d5d54",              // WEDA device id
+  "frame":       830,                          // cumulative frame counter since start
+  "lap":         1,                            // how many times the clip has looped
+  "fps":         12.17,                         // measured render+inference rate
+  "objectCount": 7,                            // total boxes in this frame
+  "classCounts": { "bottle": 7 },              // count per class
+  "detections": [                              // omitted when MQTT_INCLUDE_BOXES=false
+    {
+      "class":      "bottle",
+      "confidence": 0.8932,                    // 0.0-1.0, rounded to 4 dp
+      "bbox":       [0.5, 116.1, 344.9, 1417.2] // [x1, y1, x2, y2]
+    }
+  ]
+}
+```
+
+**`bbox` is in source-image pixels, not normalised** — for `OD_bottle_2.mp4`
+the frame is 2560x1440, so coordinates range over that. Consumers expecting
+0-1 must divide by the frame dimensions, which are not currently in the
+payload; take them from `<base>/meta`'s `source` or hard-code per clip.
+
+`classCounts` is the field to chart or alarm on. `detections` is the heavy part
+of the payload — set `MQTT_INCLUDE_BOXES=false` to drop it and cut the message
+to roughly a tenth of its size when only counts matter.
+
+### 7.3 `meta` message schema
+
+```jsonc
+{
+  "model":         "yolo11n.pt",       // weights actually loaded
+  "source":        "OD_bottle_2.mp4",  // clip being looped
+  "confThreshold": 0.4,
+  "iouThreshold":  0.45,
+  "demoVersion":   "1.1.0"             // runner version, not image tag
+}
+```
+
+### 7.4 Configuration
+
+| variable | default | purpose |
+|:---------|:--------|:--------|
+| `MQTT_ENABLED` | `true` | set `false` to run the demo with no telemetry |
+| `MQTT_HOST` | `127.0.0.1` | broker address |
+| `MQTT_PORT` | `1883` | broker port |
+| `MQTT_QOS` | `0` | QoS for `detections` (status/meta are always QoS 1) |
+| `MQTT_INTERVAL_SEC` | `1.0` | publish interval |
+| `MQTT_INCLUDE_BOXES` | `true` | include per-detection boxes |
+| `MQTT_TOPIC_BASE` | `advantech/<DEVICE_ID>/vision` | topic prefix |
+| `DEVICE_ID` | container hostname | identity in payloads and default topic |
+
+Detections are published on an **interval, not per frame**: at ~12 FPS a
+per-frame topic emits 12 msg/s of near-identical payloads for no analytical
+gain. Rate limiting lives inside the publisher so the render loop stays free of
+telemetry concerns.
+
+### 7.5 Failure behaviour
+
+**Telemetry is best-effort and never fatal.** Every publisher method degrades
+to a no-op when the broker is unreachable, so the demo keeps rendering to the
+screen — losing telemetry must not take the display down. The client
+auto-reconnects with backoff (1 s to 30 s). Failures are logged with context,
+never silently swallowed, and the per-interval demo log carries a counter:
+
+```
+[demo] 11.2 FPS | 6.0 objects/frame | laps=1 | mqtt published=52 dropped=0 connected=True
+```
+
+`dropped` incrementing while `connected=True` means the broker is accepting the
+connection but rejecting or dropping publishes — check broker logs and QoS.
+
+### 7.6 Subscribing
+
+```bash
+# from the device (or anywhere with a route to it)
+docker run --rm --network host eclipse-mosquitto:2 \
+  mosquitto_sub -h 127.0.0.1 -p 1883 -t 'advantech/#' -v
+
+# counts only, formatted
+mosquitto_sub -h <device-ip> -t 'advantech/+/vision/detections' \
+  | jq -c '{ts: .timestamp, n: .objectCount, cls: .classCounts}'
+```
+
+> **Security.** The broker is **unauthenticated and unencrypted**. That is
+> acceptable for a host-networked demo on a lab device and nothing else. Any
+> deployment carrying real process data needs TLS and credentials per
+> IEC 62443 — anonymous MQTT on a plant network is an open write path into
+> whatever consumes these topics.
+
+---
+
+## 8. Verifying a deployment
 
 Never trust `status: running` alone; the container can be up with a blank
 screen. Check all three:
@@ -311,18 +465,22 @@ runner fails fast rather than leaving a dark screen under a healthy container.
 
 ---
 
-## 8. Limitations
+## 9. Limitations
 
-* **The model is overfit to one 9-second clip by design.** Trained on 232
-  frames of `OD_Jar.mp4` from pseudo-labels, it will **not** generalise to
+* **The `jar26n` model is overfit to one 9-second clip by design.** Trained on
+  232 frames of `OD_Jar.mp4` from pseudo-labels, it will **not** generalise to
   another line, jar, camera angle, or lighting. Correct for a looping demo;
   wrong for production inspection. Any product claim needs real labelled data
-  across varied conditions.
+  across varied conditions. (The deployed bottling demo does not have this
+  problem — it uses stock weights and a real COCO class.)
 * **Labels are pseudo-labels**, inherited from a COCO teacher and temporally
   completed. They were visually spot-checked, not verified frame by frame.
 * **53% coverage is not 100%.** Part of that is genuine — stretches of the clip
   have no jar near the camera — but the figure has not been separated into
   "no jar present" versus "jar missed".
+* **The MQTT broker is unauthenticated and unencrypted** (§7). Lab demo only.
+* **`bbox` values are source-image pixels, not normalised**, and the frame
+  dimensions are not carried in the payload.
 * **No TensorRT.** Everything runs PyTorch. An on-device `.engine` export
   typically gives 2-3x on Orin. Engines are hardware- and TRT-version-specific,
   so they must be built on the target and cannot be baked into the image.
@@ -335,16 +493,19 @@ runner fails fast rather than leaving a dark screen under a healthy container.
 
 ---
 
-## 9. File map
+## 10. File map
 
 | path | purpose |
 |:-----|:--------|
 | `src/demo-od-loop.py` | unattended looping detection runner |
+| `src/mqtt_publisher.py` | MQTT detection publisher (topics, schema, LWT) |
 | `docker/Dockerfile.demo-od` | 1.0.0 — COPY-only demo image |
 | `docker/Dockerfile.demo-od-ul84` | 1.2.0-ul84 — ultralytics 8.4 for YOLO26 |
-| `docker/Dockerfile.demo-od-jar` | 1.3.0 — fine-tuned `jar26n` (deployed) |
+| `docker/Dockerfile.demo-od-jar` | 1.3.0 — fine-tuned `jar26n` (jar demo) |
+| `docker/Dockerfile.demo-od-bottle` | 1.4.0 — `OD_bottle_2` on stock weights |
+| `docker/Dockerfile.demo-od-mqtt` | 1.5.0 — adds MQTT telemetry **(deployed)** |
 | `docker/entrypoint-demo.sh` | waits for X, then starts the runner |
-| `docker/weda-stack-od-demo.yml` | WEDA compose stack |
+| `docker/weda-stack-od-demo.yml` | WEDA compose stack — broker + demo |
 | `docs/jar-detection-demo.md` | this document |
 
 Training scripts (`make_dataset.py`, `train520.py`, evaluation sweeps) live on

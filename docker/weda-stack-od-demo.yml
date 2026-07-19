@@ -15,8 +15,33 @@
 # ==========================================================================
 
 services:
+  # ------------------------------------------------------------------------
+  # MQTT broker for detection telemetry.
+  #
+  # `-c /mosquitto-no-auth.conf` is required: mosquitto 2.x refuses remote
+  # connections under its default config, and that stock file (shipped in the
+  # image) enables an anonymous listener on 1883 without needing a bind-mounted
+  # config file -- which a WEDA-deployed stack cannot easily provide.
+  #
+  # Anonymous access is acceptable here because host networking keeps the
+  # broker on the device's own interfaces for a demo. Do NOT reuse this
+  # unauthenticated config for anything carrying real process data.
+  # ------------------------------------------------------------------------
+  mqtt-broker:
+    image: eclipse-mosquitto:2
+    command: ["mosquitto", "-c", "/mosquitto-no-auth.conf"]
+    network_mode: host
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: '5m'
+        max-file: '2'
+
   yolo-od-demo:
-    image: harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.3.0
+    image: harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.5.0
+    depends_on:
+      - mqtt-broker
 
     # No explicit `container_name`: WEDA derives its own name from the stack
     # (e.g. edge_yolo-od-demo-yolo-od-demo-1, matching how the pulsar stack is
@@ -38,10 +63,24 @@ services:
       # Restore JetPack's GTK-enabled OpenCV over opencv-python-headless.
       - PYTHONPATH=/usr/lib/python3.10/dist-packages
       - YOLO_AUTOINSTALL=false
-      # Fine-tuned single-class jar detector; quality is flat from 0.25-0.50,
-      # so the higher threshold buys a cleaner overlay at no cost in recall.
-      - MODEL_PATH=/advantech/models/jar26n.pt
+      # OD_bottle_2 needs no fine-tuning: COCO knows `bottle` and detects this
+      # clip at 100% frame coverage. yolo11n measured best over all 478 frames
+      # (6.06 boxes/frame @23.8 FPS vs yolo26n's 4.97 @22.4). yolo26n is also
+      # baked in -- switch MODEL_PATH to /advantech/models/yolo26n.pt, no rebuild.
+      - VIDEO_PATH=/advantech/data/OD_bottle_2.mp4
+      - MODEL_PATH=/advantech/models/yolo11n.pt
       - CONF_THRESHOLD=0.40
+      # MQTT telemetry. Host networking puts the broker on 127.0.0.1:1883.
+      # Publishing on a 1s interval rather than per frame: at ~12 FPS a
+      # per-frame topic is 12 msg/s of near-identical payloads for no gain.
+      - MQTT_ENABLED=true
+      - MQTT_HOST=127.0.0.1
+      - MQTT_PORT=1883
+      - MQTT_QOS=0
+      - MQTT_INTERVAL_SEC=1.0
+      - MQTT_INCLUDE_BOXES=true
+      - MQTT_TOPIC_BASE=advantech/74fe488d5d54/vision
+      - DEVICE_ID=74fe488d5d54
       - FULLSCREEN=true
       - STATS_INTERVAL_SEC=60
 

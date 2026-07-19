@@ -1,0 +1,60 @@
+# ==========================================================================
+# Advantech bottling-line demo -- with MQTT detection telemetry
+# ==========================================================================
+# Version:      1.5.0
+# Created:      July 19, 2026
+#
+# Adds paho-mqtt and the detection publisher on top of 1.4.0, so the demo
+# publishes detection summaries to an MQTT broker alongside rendering to the
+# device screen.
+#
+# Topics (MQTT_TOPIC_BASE defaults to advantech/<DEVICE_ID>/vision):
+#   <base>/status       retained "online"/"offline" -- "offline" is the LWT,
+#                       so a subscriber can tell a dead publisher from a quiet
+#                       one
+#   <base>/detections   summary every MQTT_INTERVAL_SEC (default 1s)
+#   <base>/meta         retained model/source/threshold, published on connect
+#
+# Telemetry is best-effort by design: if the broker is down the demo keeps
+# rendering. Losing MQTT must never take the display out.
+#
+# Build ON THE DEVICE (needs network for pip):
+#   docker build -f docker/Dockerfile.demo-od-mqtt \
+#     -t harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.5.0 .
+#
+# Copyright (c) 2026 Advantech Corporation. All rights reserved.
+# ==========================================================================
+
+FROM harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.4.0
+
+LABEL version="1.5.0" \
+      description="Bottling-line detection demo publishing results over MQTT"
+
+# Pinned, and constrained so pip cannot pull a PyPI torch/numpy over JetPack's
+# CUDA-enabled builds while resolving.
+RUN python3 -c "import torch, torchvision, numpy; \
+      open('/tmp/c.txt','w').write(f'torch=={torch.__version__}\ntorchvision=={torchvision.__version__}\nnumpy=={numpy.__version__}\n')" \
+ && pip3 install --no-cache-dir -c /tmp/c.txt "paho-mqtt==2.1.0" \
+ && rm -f /tmp/c.txt
+
+COPY src/mqtt_publisher.py  /advantech/src/mqtt_publisher.py
+COPY src/demo-od-loop.py    /advantech/src/demo-od-loop.py
+
+ENV MQTT_ENABLED=true \
+    MQTT_HOST=127.0.0.1 \
+    MQTT_PORT=1883 \
+    MQTT_QOS=0 \
+    MQTT_INTERVAL_SEC=1.0 \
+    MQTT_INCLUDE_BOXES=true
+
+RUN python3 -c "\
+import paho.mqtt.client as mqtt, torch, cv2, sys; \
+sys.path.insert(0, '/advantech/src'); \
+from mqtt_publisher import DetectionPublisher, MQTT_AVAILABLE; \
+assert MQTT_AVAILABLE, 'paho-mqtt not importable'; \
+p = DetectionPublisher(); \
+assert p.topic_status.endswith('/status'), 'topic layout wrong'; \
+assert torch.__version__.endswith('nv24.08'), 'JetPack torch was replaced'; \
+assert 'GTK' in cv2.getBuildInformation(), 'OpenCV lost GUI support'; \
+print('paho-mqtt', mqtt.__version__ if hasattr(mqtt,'__version__') else 'ok'); \
+print('MQTT IMAGE CHECKS PASSED')"

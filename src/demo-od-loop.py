@@ -31,7 +31,10 @@ import cv2
 import torch
 from ultralytics import YOLO
 
-__version__ = "1.0.0"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from mqtt_publisher import DetectionPublisher
+
+__version__ = "1.1.0"
 
 # --- Configuration (environment-driven; no interactive input) --------------
 VIDEO_PATH = os.getenv("VIDEO_PATH", "/advantech/data/OD_Jar.mp4")
@@ -126,10 +129,22 @@ def main():
 
     capture = open_capture(VIDEO_PATH)
     create_window()
+
+    # Telemetry is best-effort: a broker outage must not stop the display.
+    publisher = DetectionPublisher()
+    publisher.connect(meta={
+        "model": Path(MODEL_PATH).name,
+        "source": Path(VIDEO_PATH).name,
+        "confThreshold": CONF_THRESHOLD,
+        "iouThreshold": IOU_THRESHOLD,
+        "demoVersion": __version__,
+    })
+
     _log(f"streaming {VIDEO_PATH} on repeat -- detections summarised every "
          f"{STATS_INTERVAL_SEC:.0f}s")
 
     frames = 0
+    total_frames = 0
     loops = 0
     detections = 0
     window_start = time.monotonic()
@@ -159,16 +174,20 @@ def main():
         cv2.imshow(WINDOW_NAME, result.plot())
 
         frames += 1
+        total_frames += 1
         if result.boxes is not None:
             detections += len(result.boxes)
 
+        elapsed = time.monotonic() - window_start
+        publisher.publish(result, total_frames, loops,
+                          frames / elapsed if elapsed > 0 else 0.0)
+
         # Interval summary keeps the log bounded; per-frame output would fill
         # the device disk over a multi-day demo run.
-        elapsed = time.monotonic() - window_start
         if elapsed >= STATS_INTERVAL_SEC:
             _log(f"{frames / elapsed:.1f} FPS | "
                  f"{detections / max(frames, 1):.1f} objects/frame | "
-                 f"laps={loops}")
+                 f"laps={loops} | mqtt {publisher.stats()}")
             frames = 0
             detections = 0
             window_start = time.monotonic()
@@ -177,6 +196,7 @@ def main():
             _log("quit requested from window")
             break
 
+    publisher.close()
     capture.release()
     cv2.destroyAllWindows()
     _log("stopped cleanly")
