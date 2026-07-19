@@ -1,0 +1,55 @@
+# ==========================================================================
+# Advantech YOLO11 Looping Object-Detection Demo -- Edge AI Demo Image
+# ==========================================================================
+# Version:      1.0.0
+# Created:      July 19, 2026
+#
+# Description:
+#   Self-contained object-detection demo for JetPack 6 devices, deployable
+#   through the WEDA container-management API.  Plays a bundled clip on repeat
+#   and renders annotated detections to the device's local screen.
+#
+# Build (from repo root, on any architecture):
+#   docker buildx build --platform linux/arm64 \
+#     -f docker/Dockerfile.demo-od \
+#     -t harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.0.0 --push .
+#
+# This stage deliberately contains no RUN instruction.  Every layer is a COPY,
+# so an arm64 image builds on an x86 host without executing anything under
+# qemu emulation.
+#
+# Copyright (c) 2026 Advantech Corporation. All rights reserved.
+# ==========================================================================
+
+FROM edgesync.azurecr.io/advantech/advantech-yolo-vision-applications:1.6.0-Ubuntu22.04-ARM
+
+LABEL maintainer="Advantech Center of Excellence" \
+      vendor="Advantech" \
+      version="1.0.0" \
+      description="YOLO11 looping object-detection demo for WEDA-managed Jetson devices"
+
+# The base image ships opencv-python-headless in /usr/local, which shadows
+# JetPack's GTK-enabled OpenCV in /usr/lib and makes cv2.imshow raise.  Putting
+# the JetPack path on PYTHONPATH restores GUI + GStreamer support without
+# rebuilding or uninstalling anything.
+ENV PYTHONPATH=/usr/lib/python3.10/dist-packages \
+    PYTHONUNBUFFERED=1 \
+    YOLO_AUTOINSTALL=false \
+    YOLO_OFFLINE=true \
+    VIDEO_PATH=/advantech/data/OD_Jar.mp4 \
+    MODEL_PATH=/advantech/models/yolo11n.pt \
+    CONF_THRESHOLD=0.25 \
+    INFER_DEVICE=0 \
+    FULLSCREEN=true \
+    STATS_INTERVAL_SEC=60
+
+WORKDIR /advantech
+
+# Weights and clip are baked in: the device has no reliable internet egress and
+# ultralytics must never try to download at runtime.
+COPY models/yolo11n.pt              /advantech/models/yolo11n.pt
+COPY data/cv_demo_clips/OD_Jar.mp4  /advantech/data/OD_Jar.mp4
+COPY src/demo-od-loop.py            /advantech/src/demo-od-loop.py
+COPY docker/entrypoint-demo.sh      /advantech/entrypoint-demo.sh
+
+ENTRYPOINT ["/advantech/entrypoint-demo.sh"]

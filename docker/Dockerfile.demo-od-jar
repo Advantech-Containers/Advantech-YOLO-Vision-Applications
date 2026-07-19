@@ -1,0 +1,51 @@
+# ==========================================================================
+# Advantech YOLO26 jar-detection demo -- fine-tuned model image
+# ==========================================================================
+# Version:      1.3.0
+# Created:      July 19, 2026
+#
+# Ships a yolo26n fine-tuned into a single-class `jar` detector for the
+# OD_Jar.mp4 demo clip.  Stock COCO weights have no jar class and detect the
+# transparent PET jars poorly -- they label the cable loom `surfboard` and the
+# filling nozzle `person`.  Measured on the demo clip:
+#
+#     stock yolo11n   conf 0.25    0% frame coverage,  0.00 boxes/frame
+#     stock yolo26n   conf 0.20   21% frame coverage,  0.31 boxes/frame
+#     jar26n (this)   conf 0.40   53% frame coverage,  1.94 boxes/frame  @23 FPS
+#
+# SCOPE: the model was fine-tuned on 232 frames of OD_Jar.mp4 alone, from
+# tracked pseudo-labels.  It is deliberately specialised to that clip and will
+# NOT generalise to another line, jar, or camera angle.  That is the right
+# trade for a looping demo and the wrong one for production inspection.
+#
+# Base MUST be the ultralytics 8.4 image: a YOLO26 checkpoint loaded under
+# 8.3.x is silently coerced into the legacy Detect head (end2end=False) and
+# emits ~22 junk boxes per frame with no error.
+#
+# Build ON THE DEVICE:
+#   docker build -f docker/Dockerfile.demo-od-jar \
+#     -t harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.3.0 .
+#
+# Copyright (c) 2026 Advantech Corporation. All rights reserved.
+# ==========================================================================
+
+FROM harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.2.0-ul84
+
+LABEL version="1.3.0" \
+      description="YOLO26 fine-tuned single-class jar detector for the OD_Jar demo"
+
+COPY models/jar26n.pt /advantech/models/jar26n.pt
+
+# conf 0.40: detection quality is flat from 0.25-0.50 (53-55% coverage), so the
+# higher value is chosen for a cleaner overlay at no measured cost in recall.
+ENV MODEL_PATH=/advantech/models/jar26n.pt \
+    CONF_THRESHOLD=0.40
+
+RUN python3 -c "\
+from ultralytics import YOLO; \
+m = YOLO('/advantech/models/jar26n.pt'); \
+h = m.model.model[-1]; \
+print('names', m.names, 'end2end', getattr(h, 'end2end', False)); \
+assert m.names == {0: 'jar'}, 'unexpected class map'; \
+assert getattr(h, 'end2end', False), 'YOLO26 head not end2end -- wrong ultralytics'; \
+print('MODEL CHECKS PASSED')"

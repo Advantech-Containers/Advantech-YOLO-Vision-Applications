@@ -1,0 +1,17 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Runtime directories created by build.sh / docker-compose
+results/
+videos/
+
+# Model weights -- fetched at build time, not source
+models/
+*.pt
+*.engine
+*.onnx
+
+# Demo media: large binaries that must not enter git history
+data/cv_demo_clips/
+*.zip

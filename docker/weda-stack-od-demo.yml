@@ -1,0 +1,61 @@
+# ==========================================================================
+# WEDA container-management stack -- YOLO11 looping object-detection demo
+# ==========================================================================
+# Target device: adlk.edgedevice.2 (Jetson Orin, JetPack 6.2 / R36.4.4)
+#
+# Deploy as a stack revision through the WEDA container-management API.
+#
+# Field choices are deliberately conservative, because WEDA's compose
+# passthrough is not guaranteed to accept every Docker Compose key:
+#   * `runtime: nvidia` is OMITTED -- the device's Docker daemon already has
+#     nvidia as its default runtime, so the GPU is injected without it, and
+#     omitting it removes a field WEDA might reject.
+#   * the explicit `devices:` list is OMITTED -- `privileged: true` already
+#     grants the container the full /dev tree it needs.
+# ==========================================================================
+
+services:
+  yolo-od-demo:
+    image: harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.3.0
+
+    # No explicit `container_name`: WEDA derives its own name from the stack
+    # (e.g. edge_yolo-od-demo-yolo-od-demo-1, matching how the pulsar stack is
+    # named on this device).  Pinning a name here would collide with anything
+    # already using it and breaks WEDA's per-stack naming.
+    privileged: true
+    ipc: host
+    network_mode: host
+    restart: unless-stopped
+    shm_size: '1gb'
+
+    environment:
+      # Reach the device's local screen. The X server runs on :0 under gdm.
+      - DISPLAY=:0
+      - XAUTHORITY=/tmp/.docker.xauth
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all,compute,video,utility,graphics
+      # Restore JetPack's GTK-enabled OpenCV over opencv-python-headless.
+      - PYTHONPATH=/usr/lib/python3.10/dist-packages
+      - YOLO_AUTOINSTALL=false
+      # Fine-tuned single-class jar detector; quality is flat from 0.25-0.50,
+      # so the higher threshold buys a cleaner overlay at no cost in recall.
+      - MODEL_PATH=/advantech/models/jar26n.pt
+      - CONF_THRESHOLD=0.40
+      - FULLSCREEN=true
+      - STATS_INTERVAL_SEC=60
+
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # gdm owns the live X cookie; it is not at ~/.Xauthority on this device.
+      - /run/user/1000/gdm/Xauthority:/tmp/.docker.xauth:ro
+      - /usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu/tegra:ro
+
+    # The device root filesystem sits at 88% capacity. Without these caps an
+    # unbounded json-file log would consume the remaining space and take the
+    # device down during a long-running demo.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'

@@ -1,0 +1,53 @@
+# ==========================================================================
+# Advantech YOLO11/YOLO26 demo -- ultralytics 8.4 experiment image
+# ==========================================================================
+# Version:      1.2.0-ul84
+# Created:      July 19, 2026
+#
+# Purpose:
+#   Upgrade ultralytics to 8.4.x so YOLO26 weights load against their real
+#   end-to-end (NMS-free) head.  On 8.3.220 a YOLO26 checkpoint is silently
+#   coerced into the legacy `Detect` head (end2end=False) and emits ~22 junk
+#   boxes per frame with zero true detections -- it loads without error, which
+#   makes the failure easy to miss.
+#
+# Build ON THE DEVICE (aarch64 + network for pip):
+#   docker build -f docker/Dockerfile.demo-od-ul84 \
+#     -t harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.2.0-ul84 .
+#
+# Copyright (c) 2026 Advantech Corporation. All rights reserved.
+# ==========================================================================
+
+FROM harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.0.0
+
+LABEL version="1.2.0-ul84" \
+      description="YOLO demo image with ultralytics 8.4 for YOLO26 evaluation"
+
+# The base image carries ultralytics as a source checkout at /ultralytics, not
+# a normal site-packages install, so it must be uninstalled first or the old
+# tree keeps winning on sys.path.
+#
+# torch / torchvision / numpy are NVIDIA JetPack builds in /usr/local and MUST
+# NOT be replaced -- a PyPI torch has no Jetson CUDA support and would silently
+# drop the demo to CPU.  ultralytics 8.4 only requires torch>=1.8.0 and
+# numpy>=1.23.0, both already satisfied, so a constraints file pinning them to
+# the installed versions keeps pip's resolver from touching them.
+RUN python3 -c "import torch, torchvision, numpy; \
+      open('/tmp/c.txt','w').write(f'torch=={torch.__version__}\ntorchvision=={torchvision.__version__}\nnumpy=={numpy.__version__}\n')" \
+ && cat /tmp/c.txt \
+ && pip3 uninstall -y ultralytics \
+ && pip3 install --no-cache-dir -c /tmp/c.txt "ultralytics==8.4.101" \
+ && rm -f /tmp/c.txt
+
+# Fail the BUILD, not the demo, if the upgrade broke the GPU or the display.
+# PYTHONPATH still puts JetPack's GTK OpenCV ahead of any opencv-python wheel
+# that ultralytics 8.4 pulled into /usr/local -- this asserts that held.
+RUN python3 -c "\
+import ultralytics, torch, cv2, sys; \
+print('ultralytics', ultralytics.__version__); \
+print('torch', torch.__version__, 'cuda', torch.cuda.is_available()); \
+print('cv2', cv2.__version__, cv2.__file__); \
+assert ultralytics.__version__.startswith('8.4'), 'ultralytics not 8.4'; \
+assert 'GTK' in cv2.getBuildInformation(), 'OpenCV lost GUI support'; \
+assert torch.__version__.endswith('nv24.08'), 'JetPack torch was replaced'; \
+print('POST-UPGRADE CHECKS PASSED')"
