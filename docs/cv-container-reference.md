@@ -39,7 +39,7 @@ An **unattended** computer-vision demo for Advantech Jetson edge devices. It:
 
 * loops a bundled video clip forever,
 * runs YOLO object detection on every frame using the device GPU,
-* renders annotated output fullscreen on the device's own physical screen,
+* renders annotated output on the device's own physical screen,
 * publishes detection results to an MQTT broker running beside it.
 
 It is deployed and lifecycle-managed through the **WEDA container-management
@@ -105,7 +105,8 @@ edgesync.azurecr.io/advantech/advantech-yolo-vision-applications:1.6.0-Ubuntu22.
   ├─ 1.2.0-ul84   Dockerfile.demo-od-ul84    ultralytics -> 8.4.101 (YOLO26 support)
   ├─ 1.3.0        Dockerfile.demo-od-jar     + fine-tuned jar26n.pt (jar demo)
   ├─ 1.4.0        Dockerfile.demo-od-bottle  + OD_bottle_2.mp4 + yolo26n.pt
-  └─ 1.5.0        Dockerfile.demo-od-mqtt    + paho-mqtt + telemetry publisher
+  ├─ 1.5.0        Dockerfile.demo-od-mqtt    + paho-mqtt + telemetry publisher
+  └─ 1.6.0        Dockerfile.demo-od-window  windowed UI instead of fullscreen
                                              <-- CURRENTLY DEPLOYED
 ```
 
@@ -427,8 +428,23 @@ Every setting is an environment variable. No config files, no CLI arguments.
 | `IOU_THRESHOLD` | `0.45` | NMS IoU |
 | `INFER_DEVICE` | `0` | `0` = GPU, `cpu` = CPU |
 | `WINDOW_NAME` | `Advantech YOLO11 - Object Detection` | X window title |
-| `FULLSCREEN` | `true` | fullscreen the window |
+| `FULLSCREEN` | `true` (stack sets `false`) | fullscreen vs windowed |
+| `WINDOW_WIDTH` | `1280` | windowed width — ignored when fullscreen |
+| `WINDOW_HEIGHT` | `720` | windowed height |
+| `WINDOW_X` | `40` | windowed X position |
+| `WINDOW_Y` | `40` | windowed Y position |
 | `STATS_INTERVAL_SEC` | `60` | interval log period |
+
+**The window size is not cosmetic.** OpenCV sizes a `WINDOW_NORMAL` window to
+the *source frame*, and the demo clips are 2560x1440 against a 1920x1080 panel.
+Turning `FULLSCREEN` off without setting a size gives a window larger than the
+screen — worse than fullscreen was. The runner therefore calls `resizeWindow`
+and `moveWindow` explicitly whenever fullscreen is disabled.
+
+**Windowed mode does not stay on top.** Anything else on the desktop (AnyDesk,
+a file manager) will cover the demo. There is no window-manager hint in the
+image — `wmctrl`/`xdotool` are not installed. If the demo must remain visible,
+either use fullscreen or position it clear of where other applications open.
 | `X_WAIT_TIMEOUT_SEC` | `120` | entrypoint wait for X |
 
 ### 7.2 MQTT publisher
@@ -671,7 +687,7 @@ rsync -a src/ docker/ models/ data/ adlk.edgedevice.2:/home/ubuntu/yolo-od-demo/
 
 ssh adlk.edgedevice.2 'cd /home/ubuntu/yolo-od-demo && \
   docker build -f docker/Dockerfile.demo-od-mqtt \
-    -t harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.5.0 .'
+    -t harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.6.0 .'
 ```
 
 ### 12.2 Publish to Harbor via the LAN
@@ -681,16 +697,16 @@ on a shared edge device is undesirable. Instead, stream the image to a
 credentialled host over the LAN (~99 MB/s measured) and push from there:
 
 ```bash
-ssh adlk.edgedevice.2 'docker save harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.5.0' \
+ssh adlk.edgedevice.2 'docker save harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.6.0' \
   | docker load
-docker push harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.5.0
+docker push harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.6.0
 ```
 
 Verify architecture after pushing — an accidental amd64 push will deploy and
 then fail on the device:
 
 ```bash
-docker manifest inspect -v harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.5.0 \
+docker manifest inspect -v harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.6.0 \
   | grep -E '"architecture"|"os"'      # expect arm64 / linux
 ```
 
@@ -842,7 +858,8 @@ Every revision remains deployable:
 | v1 | `c0139896-8dd1-4e62-bbf3-f4cee5410eaa` | 1.0.0 | yolo11n | OD_Jar |
 | v2 | `7dc22a75-a938-4f33-9286-77915fb06229` | 1.3.0 | **jar26n** | OD_Jar |
 | v3 | `45685531-acef-4405-a74f-d928997c99e7` | 1.4.0 | yolo11n | OD_bottle_2 |
-| v4 | `2201a204-630a-4f45-a893-70d0c9540704` | 1.5.0 | yolo11n | OD_bottle_2 + MQTT |
+| v4 | `2201a204-630a-4f45-a893-70d0c9540704` | 1.5.0 | yolo11n | OD_bottle_2 + MQTT, fullscreen |
+| v5 | `de070d1b-4e9c-4f8a-9ca4-78fccbfce2b6` | 1.6.0 | yolo11n | OD_bottle_2 + MQTT, windowed 1280x720 |
 
 ```bash
 curl -X DELETE …/devices/74fe488d5d54/stacks/deployments

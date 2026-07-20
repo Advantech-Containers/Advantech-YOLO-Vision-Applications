@@ -44,6 +44,13 @@ IOU_THRESHOLD = float(os.getenv("IOU_THRESHOLD", "0.45"))
 INFER_DEVICE = os.getenv("INFER_DEVICE", "0")
 WINDOW_NAME = os.getenv("WINDOW_NAME", "Advantech YOLO11 - Object Detection")
 FULLSCREEN = os.getenv("FULLSCREEN", "true").lower() == "true"
+# Windowed geometry. Without an explicit size OpenCV sizes the window to the
+# source frame -- 2560x1440 for the demo clips, larger than the 1920x1080
+# panel -- so a non-fullscreen window would overflow the screen.
+WINDOW_WIDTH = int(os.getenv("WINDOW_WIDTH", "1280"))
+WINDOW_HEIGHT = int(os.getenv("WINDOW_HEIGHT", "720"))
+WINDOW_X = int(os.getenv("WINDOW_X", "40"))
+WINDOW_Y = int(os.getenv("WINDOW_Y", "40"))
 STATS_INTERVAL_SEC = float(os.getenv("STATS_INTERVAL_SEC", "60"))
 
 _shutdown = False
@@ -115,6 +122,13 @@ def create_window():
         cv2.setWindowProperty(
             WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
         )
+        _log("window: fullscreen")
+    else:
+        # Size and place explicitly, or the window inherits the source frame
+        # size and runs off the edge of the panel.
+        cv2.resizeWindow(WINDOW_NAME, WINDOW_WIDTH, WINDOW_HEIGHT)
+        cv2.moveWindow(WINDOW_NAME, WINDOW_X, WINDOW_Y)
+        _log(f"window: {WINDOW_WIDTH}x{WINDOW_HEIGHT} at +{WINDOW_X}+{WINDOW_Y}")
 
 
 def main():

@@ -13,15 +13,19 @@ A five-minute orientation. For depth, go to:
 
 An unattended computer-vision demo for Advantech Jetson edge devices. It loops
 a video clip forever, runs YOLO detection on the device GPU, renders annotated
-output fullscreen on the device's own screen, and publishes detection results
-to an MQTT broker running beside it. It is deployed and managed through the
-**WEDA container-management API**.
+output on the device's own screen, and publishes detection results to an MQTT
+broker running beside it. It is deployed and managed through the **WEDA
+container-management API**.
+
+The display is currently **windowed at 1280x720** (`FULLSCREEN=false`).
+Windowed mode does not stay on top, so other desktop applications will cover
+it; fullscreen remains available by flipping one stack variable.
 
 ```
 +-- WEDA stack "yolo-od-demo" ---------------------------------+
 |                                                              |
 |   mqtt-broker             yolo-od-demo                       |
-|   eclipse-mosquitto:2     yolo-od-demo:1.5.0                 |
+|   eclipse-mosquitto:2     yolo-od-demo:1.6.0                 |
 |     :1883  <------------- publishes detections               |
 |                             |                                |
 |                             +--> X11 :0 --> device screen    |
@@ -34,8 +38,8 @@ to an MQTT broker running beside it. It is deployed and managed through the
 | | |
 |:--|:--|
 | device | `adlk.edgedevice.2` — EPC-R7300, Jetson Orin, JetPack 6.2 |
-| stack | `yolo-od-demo` **v4** (`2201a204-630a-4f45-a893-70d0c9540704`) |
-| image | `harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.5.0` |
+| stack | `yolo-od-demo` **v5** (`de070d1b-4e9c-4f8a-9ca4-78fccbfce2b6`) |
+| image | `harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.6.0` |
 | clip | `OD_bottle_2.mp4` — bottling line, 8 s, 2560x1440 |
 | model | stock `yolo11n` @ conf 0.40 |
 | measured | **100% frame coverage, 6.06 boxes/frame, ~12 FPS live** |
@@ -98,7 +102,7 @@ redeploy, because a delta missed while disconnected is never replayed.
 ```
 src/demo-od-loop.py             unattended looping runner
 src/mqtt_publisher.py           MQTT telemetry publisher
-docker/Dockerfile.demo-od*      image lineage 1.0.0 -> 1.5.0
+docker/Dockerfile.demo-od*      image lineage 1.0.0 -> 1.6.0
 docker/weda-stack-od-demo.yml   WEDA compose stack (broker + demo)
 training/                       fine-tuning pipeline
 docs/                           this document, reference, training guide

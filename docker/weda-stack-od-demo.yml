@@ -39,7 +39,7 @@ services:
         max-file: '2'
 
   yolo-od-demo:
-    image: harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.5.0
+    image: harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.6.0
     depends_on:
       - mqtt-broker
 
@@ -81,7 +81,14 @@ services:
       - MQTT_INCLUDE_BOXES=true
       - MQTT_TOPIC_BASE=advantech/74fe488d5d54/vision
       - DEVICE_ID=74fe488d5d54
-      - FULLSCREEN=true
+      # Windowed rather than fullscreen. An explicit size is required:
+      # OpenCV sizes a normal window to the source frame (2560x1440),
+      # which overflows the 1920x1080 panel.
+      - FULLSCREEN=false
+      - WINDOW_WIDTH=1280
+      - WINDOW_HEIGHT=720
+      - WINDOW_X=40
+      - WINDOW_Y=40
       - STATS_INTERVAL_SEC=60
 
     volumes:

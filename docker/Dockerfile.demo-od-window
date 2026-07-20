@@ -1,0 +1,41 @@
+# ==========================================================================
+# Advantech bottling-line demo -- windowed (non-fullscreen) UI
+# ==========================================================================
+# Version:      1.6.0
+# Created:      July 20, 2026
+#
+# Same demo as 1.5.0, with the detection window run in a sized window rather
+# than fullscreen.
+#
+# WINDOW_WIDTH/HEIGHT are not cosmetic: OpenCV sizes a WINDOW_NORMAL window to
+# the source frame, and the demo clips are 2560x1440 against a 1920x1080
+# panel. Without an explicit size the window overflows the screen, which looks
+# worse than fullscreen did.
+#
+# Build ON THE DEVICE:
+#   docker build -f docker/Dockerfile.demo-od-window \
+#     -t harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.6.0 .
+#
+# Copyright (c) 2026 Advantech Corporation. All rights reserved.
+# ==========================================================================
+
+FROM harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.5.0
+
+LABEL version="1.6.0" \
+      description="Bottling-line detection demo, windowed UI with MQTT telemetry"
+
+COPY src/demo-od-loop.py /advantech/src/demo-od-loop.py
+
+ENV FULLSCREEN=false \
+    WINDOW_WIDTH=1280 \
+    WINDOW_HEIGHT=720 \
+    WINDOW_X=40 \
+    WINDOW_Y=40
+
+RUN python3 -c "\
+import os, sys; \
+sys.path.insert(0, '/advantech/src'); \
+src = open('/advantech/src/demo-od-loop.py').read(); \
+assert 'resizeWindow' in src and 'moveWindow' in src, 'window sizing missing'; \
+assert os.environ['FULLSCREEN'] == 'false', 'FULLSCREEN not disabled'; \
+print('WINDOWED UI CHECKS PASSED')"
