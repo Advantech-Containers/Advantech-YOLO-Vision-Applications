@@ -38,15 +38,17 @@ it; fullscreen remains available by flipping one stack variable.
 | | |
 |:--|:--|
 | device | `adlk.edgedevice.2` — EPC-R7300, Jetson Orin, JetPack 6.2 |
-| stack | `yolo-od-demo` **v5** (`de070d1b-4e9c-4f8a-9ca4-78fccbfce2b6`) |
+| stack | `yolo-od-demo` **v8** (`5842934c-a7c6-41bb-88a7-caa2cff48411`) |
 | image | `harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.6.0` |
 | clip | `OD_bottle_2.mp4` — bottling line, 8 s, 2560x1440 |
-| model | stock `yolo11n` @ conf 0.40 |
-| measured | **100% frame coverage, 6.06 boxes/frame, ~12 FPS live** |
+| model | stock `yolo26n` @ conf 0.40 |
+| measured | **100% frame coverage, 4.97 boxes/frame, ~13 FPS live** |
 | telemetry | `advantech/74fe488d5d54/vision/#` |
 
 Every detection in the deployed clip is `bottle` — one class, no false
-positives anywhere across its 478 frames.
+positives anywhere across its 478 frames. `yolo26n` (NMS-free end-to-end head)
+is the active model; `yolo11n` is baked in too and gives denser detections
+(6.06 vs 4.97 boxes/frame) — switch via `MODEL_PATH`, no rebuild.
 
 ## Two demos
 

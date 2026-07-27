@@ -860,6 +860,7 @@ Every revision remains deployable:
 | v3 | `45685531-acef-4405-a74f-d928997c99e7` | 1.4.0 | yolo11n | OD_bottle_2 |
 | v4 | `2201a204-630a-4f45-a893-70d0c9540704` | 1.5.0 | yolo11n | OD_bottle_2 + MQTT, fullscreen |
 | v5 | `de070d1b-4e9c-4f8a-9ca4-78fccbfce2b6` | 1.6.0 | yolo11n | OD_bottle_2 + MQTT, windowed 1280x720 |
+| v8 | `5842934c-a7c6-41bb-88a7-caa2cff48411` | 1.6.0 | **yolo26n** | OD_bottle_2 + MQTT, windowed (v6/v7 made by others) |
 
 ```bash
 curl -X DELETE …/devices/74fe488d5d54/stacks/deployments

@@ -64,11 +64,12 @@ services:
       - PYTHONPATH=/usr/lib/python3.10/dist-packages
       - YOLO_AUTOINSTALL=false
       # OD_bottle_2 needs no fine-tuning: COCO knows `bottle` and detects this
-      # clip at 100% frame coverage. yolo11n measured best over all 478 frames
-      # (6.06 boxes/frame @23.8 FPS vs yolo26n's 4.97 @22.4). yolo26n is also
-      # baked in -- switch MODEL_PATH to /advantech/models/yolo26n.pt, no rebuild.
+      # clip at 100% frame coverage. Running yolo26n (NMS-free end-to-end head,
+      # needs the ultralytics 8.4 base). Measured over all 478 frames @0.40:
+      # 100% coverage, 4.97 boxes/frame, 22.4 FPS. yolo11n is also baked in --
+      # switch MODEL_PATH to /advantech/models/yolo11n.pt, no rebuild.
       - VIDEO_PATH=/advantech/data/OD_bottle_2.mp4
-      - MODEL_PATH=/advantech/models/yolo11n.pt
+      - MODEL_PATH=/advantech/models/yolo26n.pt
       - CONF_THRESHOLD=0.40
       # MQTT telemetry. Host networking puts the broker on 127.0.0.1:1883.
       # Publishing on a 1s interval rather than per frame: at ~12 FPS a
