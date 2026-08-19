@@ -43,10 +43,15 @@ ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH \
     YOLO_AUTOINSTALL=false
 
 # X11 client libs for cv2.imshow(); runtime values are injected via compose.
+# libcanberra-gtk* are not optional decoration: without them every cv2.imshow()
+# logs "Failed to load module canberra-gtk-module" twice per window, which buries
+# the real inference output in an operator's terminal.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libx11-6 \
         libxext6 \
         x11-utils \
+        libcanberra-gtk-module \
+        libcanberra-gtk3-module \
   && rm -rf /var/lib/apt/lists/*
 
 # --- Heavy / rarely-changing layers first so editing src/ does not re-trigger

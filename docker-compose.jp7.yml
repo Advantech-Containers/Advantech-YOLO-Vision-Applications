@@ -104,7 +104,27 @@ services:
     working_dir: /wise-edge/advantech-yolo
     tty: true
     stdin_open: true
-    command: /bin/bash
+    # With YOLO_AUTOSTART=true the container renders the annotated stream on the
+    # device's display as soon as the stack comes up — no docker exec needed.
+    #
+    # --loop is what makes it *stay* on screen: inference runs at GPU speed
+    # (~93 fps on Thor), so a 343-frame clip plays out in under 4 seconds and the
+    # window vanishes before anyone sees it. Replaying keeps it up indefinitely.
+    #
+    # Anything other than `true` drops to an idle shell instead — the CV_demo
+    # default, and what you want when hydration failed and you need to poke at
+    # the environment rather than watch a demo fail to start.
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        if [ "${YOLO_AUTOSTART}" = "true" ]; then
+          exec python3 src/advantech-yolo.py \
+            --task "${YOLO_TASK}" --model "${YOLO_MODEL}" --input "${YOLO_INPUT}" \
+            --conf "${YOLO_CONF}" --device "${YOLO_DEVICE}" \
+            ${YOLO_SHOW} ${YOLO_LOOP} --save --save-dir /wise-edge/advantech-yolo/output
+        fi
+        exec /bin/bash
     logging:
       driver: "json-file"
       options:
