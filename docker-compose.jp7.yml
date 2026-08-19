@@ -1,0 +1,122 @@
+# ==============================================================================
+# Advantech YOLO Vision (JetPack 7 / Jetson Thor) — Docker Compose
+#
+# Modelled on Application_Demo_Container_Project/CV_demo — the validated Thor
+# demos — NOT on docker-compose.jp6.yml. The JP6 file targets Orin/L4T r36 and
+# deploys a different image (edge-coa/yolo-od-demo) under the WEDA AMM
+# model-slot scenario; this file builds and runs THIS repo's application.
+#
+# Run:  ./build.jp7.sh
+# or:   docker compose -f docker-compose.jp7.yml --env-file .env.jp7 up -d
+#
+# ------------------------------------------------------------------------------
+# THOR NOTES (why this differs from the JP6 wiring)
+#
+#  * No explicit `devices:` list. Thor exposes the GPU dGPU-style —
+#    /dev/nvidia0, /dev/nvidiactl, and NO /dev/nvgpu. The JP6 node set
+#    (/dev/nvhost-*, /dev/nvmap, /dev/nvgpu/igpu0) does not exist, and naming a
+#    missing path under `devices:` makes the container fail to start outright.
+#    /dev is bind-mounted wholesale instead, as CV_demo does.
+#
+#  * `deploy.resources.reservations.devices: driver: nvidia` requests a CDI
+#    device, which forces the nvidia runtime down the CDI path on Thor.
+#    Setting NVIDIA_CONTAINER_RUNTIME_MODE=csv on the container does NOT
+#    override this. See CV_demo/weda-cv-vlm/TROUBLESHOOTING.md §9.11.
+#
+#  * Thor's CDI spec (/etc/cdi/nvidia.yaml) ships CUDA/EGL/Vulkan but ZERO
+#    GStreamer entries, so libgstnv*.so is never injected and video decode
+#    falls back to CPU. This file ships the per-container fix (§9.11 Fix B):
+#    bind-mount the host plugins to /opt/nvgst and their dep libs to
+#    /opt/nvhostlibs. `privileged: true` does not help — privilege grants
+#    capabilities, not file visibility.
+# ==============================================================================
+services:
+  advantech-yolo:
+    image: ${YOLO_JP7_IMAGE}
+    # Build from Dockerfile.jp7; context is the repo root so COPY can reach
+    # src/, data/, and models/.
+    build:
+      context: .
+      dockerfile: Dockerfile.jp7
+    container_name: ${CONTAINER_NAME}
+    restart: "no"
+    runtime: nvidia
+    privileged: true
+    entrypoint: ["/wise-edge/advantech-yolo/entrypoint.sh"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility, compute, video, display]
+    network_mode: host
+    ipc: host
+    shm_size: '1gb'
+    environment:
+      # ── Display ─────────────────────────────────────────────────────────────
+      - DISPLAY=${DISPLAY}
+      - XAUTHORITY=/tmp/.Xauthority
+      # ── NVIDIA ──────────────────────────────────────────────────────────────
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES}
+      - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES}
+      # ── Libraries (see THOR NOTES / TROUBLESHOOTING §9.11) ───────────────────
+      - LD_LIBRARY_PATH=/opt/nvhostlibs:${LD_LIBRARY_PATH}
+      - GST_PLUGIN_PATH=/opt/nvgst
+      # ── Qt / GUI Stability ──────────────────────────────────────────────────
+      - QT_X11_NO_MITSHM=${QT_X11_NO_MITSHM}
+      - NO_AT_SPI=${NO_AT_SPI}
+      - DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS}
+      # ── EULA ────────────────────────────────────────────────────────────────
+      - ACCEPT_ULTRALYTICS_EULA=${ACCEPT_ULTRALYTICS_EULA}
+      - ACCEPT_COMMERCIAL_EULA=${ACCEPT_ULTRALYTICS_EULA}
+      # ── BYOL Packages ───────────────────────────────────────────────────────
+      # Declared here (not just exported by entrypoint.sh) so that `docker exec`
+      # shells resolve the BYOL install too.
+      - WEDA_CV_BYOL_DIR=/opt/weda-cv/byol
+      - PYTHONPATH=/opt/weda-cv/byol
+      - ULTRALYTICS_VERSION=${ULTRALYTICS_VERSION}
+      - ULTRALYTICS_THOP_VERSION=${ULTRALYTICS_THOP_VERSION}
+      # ── Application ─────────────────────────────────────────────────────────
+      - YOLO_CONFIG_DIR=/wise-edge/advantech-yolo/.config/Ultralytics
+      - YOLO_AUTOINSTALL=false
+    volumes:
+      # ── Host timezone (keeps saved-result timestamps in sync) ───────────────
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      # ── X11 Display ─────────────────────────────────────────────────────────
+      - ${X11_SOCKET}:/tmp/.X11-unix:rw
+      - ${XAUTHORITY}:/tmp/.Xauthority:ro
+      # ── Device Access (Thor: no /dev/nvgpu — see THOR NOTES) ────────────────
+      - /dev:/dev:rw
+      # ── NVIDIA GStreamer plugins + dep libs (Thor CDI gap, §9.11 Fix B) ─────
+      - /usr/lib/aarch64-linux-gnu/gstreamer-1.0:/opt/nvgst:ro
+      - /usr/lib/aarch64-linux-gnu/nvidia:/opt/nvhostlibs:ro
+      # ── Source (live edit, no rebuild required) ──────────────────────────────
+      - ./src:/wise-edge/advantech-yolo/src:ro
+      - ./data:/wise-edge/advantech-yolo/data:ro
+      - ./models:/wise-edge/advantech-yolo/models:ro
+      - ./entrypoint.jp7.sh:/wise-edge/advantech-yolo/entrypoint.sh:ro
+      # ── Persistent Output ───────────────────────────────────────────────────
+      - ./results:/wise-edge/advantech-yolo/output:rw
+      # ── BYOL Packages (persisted: hydrate once per device, not per launch) ──
+      - byol:/opt/weda-cv/byol:rw
+    working_dir: /wise-edge/advantech-yolo
+    tty: true
+    stdin_open: true
+    command: /bin/bash
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "${LOG_MAX_SIZE}"
+        max-file: "${LOG_MAX_FILE}"
+
+# ==============================================================================
+# Named volume holding the licensed (BYOL) Ultralytics install. Kept outside the
+# container lifecycle so that recreating the container does not force a network
+# re-install — the root cause of the hydration timeouts on slow links.
+# Purge with: ./build.jp7.sh --clean
+# ==============================================================================
+volumes:
+  byol:
+    name: ${BYOL_VOLUME}

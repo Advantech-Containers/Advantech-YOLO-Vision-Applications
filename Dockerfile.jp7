@@ -1,0 +1,88 @@
+# syntax=docker/dockerfile:1.6
+# ==============================================================================
+# Advantech YOLO Vision Application — JetPack 7 / Jetson Thor Demo Image
+# Base: WEDA-CV Platform (Thor)
+# ==============================================================================
+# Modelled on Application_Demo_Container_Project/CV_demo (Object-counting /
+# Instance-Segmentation), which are the validated Thor demos.
+#
+# Two things differ from the JP6 image (Dockerfile) beyond the base:
+#
+#  1. Ultralytics is NOT baked in. It is BYOL (bring-your-own-licence) and is
+#     installed at runtime by entrypoint.jp7.sh into a named volume, gated on
+#     ACCEPT_ULTRALYTICS_EULA. Baking it into the image would ship a licensed
+#     component we are not entitled to redistribute.
+#  2. No opencv swap. The weda-cv base already ships a GUI-capable, Thor-built
+#     OpenCV; reinstalling the x86-style opencv-python wheel over it is how you
+#     lose CUDA/NVMM support on this platform.
+#
+# Build (context is the repo root, not this file's directory):
+#   docker build -f Dockerfile.jp7 -t advantech-yolo-vision:jp7-demo .
+#
+# Run: use build.jp7.sh — it detects X11 and waits out first-run hydration.
+# ==============================================================================
+FROM harbor.edgesync.cloud/weda-ai/weda-cv:1.0.0-thor
+
+LABEL maintainer="Kevin.Chien" \
+      vendor="Advantech" \
+      org.opencontainers.image.title="Advantech YOLO Vision — JP7 Demo" \
+      org.opencontainers.image.description="YOLO11 detect/segment/classify on Jetson Thor (JetPack 7)" \
+      com.advantech.layer="demo" \
+      com.advantech.type="application" \
+      com.advantech.base="weda-cv:1.0.0-thor" \
+      com.advantech.target="jetson-thor"
+
+WORKDIR /wise-edge/advantech-yolo
+
+# Thor builder resources link against /usr/local/lib; without this TensorRT
+# engine build fails to resolve its dynamic deps. Carried over from CV_demo.
+ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    YOLO_CONFIG_DIR=/wise-edge/advantech-yolo/.config/Ultralytics \
+    YOLO_AUTOINSTALL=false
+
+# X11 client libs for cv2.imshow(); runtime values are injected via compose.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libx11-6 \
+        libxext6 \
+        x11-utils \
+  && rm -rf /var/lib/apt/lists/*
+
+# --- Heavy / rarely-changing layers first so editing src/ does not re-trigger
+#     the apt layer on every rebuild. ---
+
+# Demo video asset — small, rarely changes.
+COPY data/test.mp4  data/test.mp4
+
+# Ship all three weight sets so the image runs detect, segment, and classify
+# offline (no ultralytics assets fetch at first run) and reproducibly from
+# models/. Only ~17 MB total.
+COPY models/  models/
+
+RUN mkdir -p /wise-edge/advantech-yolo/output \
+             /wise-edge/advantech-yolo/.config/Ultralytics
+
+# Entrypoint before source: it changes far less often than the demo code.
+COPY entrypoint.jp7.sh  entrypoint.sh
+RUN chmod +x entrypoint.sh
+
+# Application source LAST so iterating on it only rebuilds the final layer.
+COPY src/advantech-yolo.py  src/advantech-yolo.py
+
+# Hydration is fail-safe: the container stays up even if it fails, so the
+# operator keeps a shell to diagnose with.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD test -f /wise-edge/advantech-yolo/.ready || exit 1
+
+ENTRYPOINT ["/wise-edge/advantech-yolo/entrypoint.sh"]
+
+# Default: detection on the bundled demo video, annotated output under output/.
+CMD ["python3", "src/advantech-yolo.py", \
+     "--task", "detect", \
+     "--model", "models/yolo11n.pt", \
+     "--input", "data/test.mp4", \
+     "--conf", "0.25", \
+     "--device", "0", \
+     "--save", \
+     "--save-dir", "/wise-edge/advantech-yolo/output"]

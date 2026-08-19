@@ -24,8 +24,12 @@ diagnostics/
 
 # Compose / shell helpers — image is self-contained, doesn't need them
 docker-compose.yml
+docker-compose.*.yml
 build.sh
+build.jp7.sh
 wise-bench.sh
+.env
+.env.*
 
 # Python
 __pycache__/
