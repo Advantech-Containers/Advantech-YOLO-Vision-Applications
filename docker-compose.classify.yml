@@ -1,0 +1,106 @@
+# ==========================================================================
+# Advantech YOLO Vision — Classification Demo Compose File
+# ==========================================================================
+# Sister compose file to docker-compose.demo.yml and
+# docker-compose.segment.yml. Launches the self-contained classify-demo
+# image and runs YOLO11 image classification on data/test.mp4 with NVIDIA
+# acceleration on Jetson devices, rendering the OpenCV window on the
+# device's local display (DISPLAY=:0).
+#
+# Usage:
+#   # First time only: allow the container to draw on the local display
+#   xhost +local:root
+#
+#   # Launch (opens an OpenCV window on the device screen + saves to ./results):
+#   docker compose -f docker-compose.classify.yml up
+#
+#   # One-shot run, removed on exit:
+#   docker compose -f docker-compose.classify.yml run --rm classify-demo
+#
+#   # Tear down:
+#   docker compose -f docker-compose.classify.yml down
+#
+# Image is produced by Dockerfile.classify in this repo:
+#   docker build --network=host -f Dockerfile.classify \
+#     -t advantech-yolo-vision:classify-demo .
+# ==========================================================================
+
+services:
+  classify-demo:
+    image: advantech-yolo-vision:classify-demo
+    container_name: advantech-yolo-classify-demo
+    runtime: nvidia
+    network_mode: host
+    ipc: host
+    tty: true
+    stdin_open: true
+    init: true
+    working_dir: /advantech
+    shm_size: '2gb'
+    restart: "no"
+
+    # --loop tells advantech-yolo.py to replay the video continuously
+    # without reloading the model.
+    # NOTE: classification has no --iou parameter.
+    command: >
+      python3 src/advantech-yolo.py
+      --task classify
+      --model yolo11n-cls.pt
+      --input data/test.mp4
+      --conf 0.25
+      --device 0
+      --show
+      --loop
+
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all,compute,video,utility,graphics
+      - CUDA_DEVICE_MAX_CONNECTIONS=1
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:64
+      - YOLO_CONFIG_DIR=/tmp/Ultralytics
+      - LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu:${LD_LIBRARY_PATH:-}
+      # X11 → device-local display screen (Jetson desktop session is always :0)
+      - DISPLAY=:0
+      - QT_X11_NO_MITSHM=1
+      - QT_QPA_PLATFORM=xcb
+      - XDG_RUNTIME_DIR=/tmp
+      # Point Xlib at the cookie mounted from the host (see volumes below)
+      - XAUTHORITY=/tmp/.docker.xauth
+
+    volumes:
+      # Persist annotated output back to the host
+      - ./results:/advantech/results:rw
+
+      # Jetson hardware acceleration (Tegra libs / GStreamer plugins)
+      - /etc/nv_tegra_release:/etc/nv_tegra_release:ro
+      - /usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu/tegra:ro
+      - /usr/lib/aarch64-linux-gnu/gstreamer-1.0:/usr/lib/aarch64-linux-gnu/gstreamer-1.0:ro
+
+      # X11 socket + GDM-issued magic cookie for the host's local display.
+      # The cookie path is fixed on JetPack 6 (GDM + uid 1000 = mic-733ao),
+      # so the container picks it up without any host-side `xhost` or
+      # `export XAUTHORITY=...` step before `docker compose up`.
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /run/user/1000/gdm/Xauthority:/tmp/.docker.xauth:ro
+
+    # Jetson GPU / multimedia device passthrough (JetPack 6 / R36 node set)
+    devices:
+      - /dev/nvhost-ctrl-gpu
+      - /dev/nvhost-prof-gpu
+      - /dev/nvhost-as-gpu
+      - /dev/nvhost-gpu
+      - /dev/nvmap
+      - /dev/nvgpu/igpu0
+      - /dev/v4l2-nvenc
+      - /dev/v4l2-nvdec
+      - /dev/nvidia0
+      - /dev/nvidiactl
+      - /dev/nvidia-modeset
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu, compute, utility, video]
+              count: all

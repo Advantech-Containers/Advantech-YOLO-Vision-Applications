@@ -1,0 +1,90 @@
+# ==========================================================================
+# SCENARIO 1 (API-only) -- model swapped in place by the AMM apply hook.
+#
+# MODEL_PATH is a FIXED path: the AI-model slot yolo-active/1_0_0/model.pt in
+# the secured volume. It NEVER changes. To switch models you replace the FILE
+# at that path through the AI-Model-Management API, with
+#   applyCmd = ATOMIC_SWAP_AND_RESTART_CONTAINER { name: <this container> }
+# which atomically swaps the file and restarts this container so it reloads.
+#
+# No symlink, no SSH, no stack redeploy.
+#
+# The container name matters: it is what applyCmd.params.name must equal.
+# WEDA names stack containers  edge_<stack>-<service>-1, i.e.
+#   edge_yolo-od-demo-yolo-od-demo-1
+# ==========================================================================
+services:
+  mqtt-broker:
+    image: eclipse-mosquitto:2
+    command: ["mosquitto", "-c", "/mosquitto-no-auth.conf"]
+    network_mode: host
+    restart: unless-stopped
+    logging: { driver: json-file, options: { max-size: '5m', max-file: '2' } }
+
+  yolo-od-demo:
+    image: harbor.arfa.wise-paas.com/edge-coa/yolo-od-demo:1.6.0
+    depends_on: [ mqtt-broker ]
+    # REQUIRED on Jetson: without it the NVIDIA_* env vars below are inert,
+    # the L4T driver stack (libcuda.so.1 & friends) is never injected, and
+    # torch.cuda.is_available() returns False.
+    runtime: nvidia
+    privileged: true
+    ipc: host
+    network_mode: host
+    restart: unless-stopped
+    shm_size: '1gb'
+    environment:
+      - DISPLAY=:0
+      - XAUTHORITY=/tmp/.docker.xauth
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all,compute,video,utility,graphics
+      - PYTHONPATH=/usr/lib/python3.10/dist-packages
+      - YOLO_AUTOINSTALL=false
+      - VIDEO_PATH=/advantech/data/OD_bottle_2.mp4
+      # FIXED path — the AMM stable slot. Content is swapped by the apply hook.
+      - MODEL_PATH=/advantech/secured-models/ai-models/yolo-active/1_0_0/model.pt
+      - CONF_THRESHOLD=0.40
+      - MQTT_ENABLED=true
+      - MQTT_HOST=127.0.0.1
+      - MQTT_PORT=1883
+      - MQTT_QOS=0
+      - MQTT_INTERVAL_SEC=1.0
+      - MQTT_INCLUDE_BOXES=true
+      - MQTT_TOPIC_BASE=advantech/74fe488d5d54/vision
+      - DEVICE_ID=74fe488d5d54
+      - FULLSCREEN=false
+      - WINDOW_WIDTH=1280
+      - WINDOW_HEIGHT=720
+      - WINDOW_X=40
+      - WINDOW_Y=40
+      - STATS_INTERVAL_SEC=60
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /run/user/1000/gdm/Xauthority:/tmp/.docker.xauth:ro
+      - /usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu/tegra:ro
+      # secured volume (encrypted at rest), read-only
+      - /home/mic-713/ops/yolo26n.pt:/advantech/secured-models/ai-models/yolo-active/1_0_0/model.pt:ro
+    logging: { driver: json-file, options: { max-size: '10m', max-file: '3' } }
+    # Jetson GPU / multimedia device passthrough (JetPack 6 / R36 node set)
+    devices:
+      - /dev/nvhost-ctrl-gpu
+      - /dev/nvhost-prof-gpu
+      - /dev/nvhost-as-gpu
+      - /dev/nvhost-gpu
+      - /dev/nvmap
+      - /dev/nvgpu/igpu0
+    #- /dev/v4l2-nvenc
+    #- /dev/v4l2-nvdec
+      - /dev/nvidia0
+      - /dev/nvidiactl
+      - /dev/nvidia-modeset
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu, compute, utility, video, graphics]
+              count: all
+
+

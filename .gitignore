@@ -1,0 +1,17 @@
+# Inference output — regenerated on every run, never a build input
+results/
+diagnostics/
+
+# Stray weight downloads next to the sources; the canonical copies the
+# Dockerfiles COPY from live in models/ and ARE tracked.
+src/*.pt
+
+# Exported / compiled model artefacts
+*.engine
+*.onnx
+*.tar
+
+# Python
+__pycache__/
+*.pyc
+*.pyo

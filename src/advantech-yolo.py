@@ -154,6 +154,7 @@ def interactive_mode():
     args.show     = show
     args.save     = save
     args.save_dir = save_dir
+    args.loop     = False
 
     run_inference(args)
 
@@ -219,6 +220,7 @@ def run_inference(args):
         print(f"IoU:        {args.iou}")
     print(f"Show:       {args.show}")
     print(f"Save:       {args.save}")
+    print(f"Loop:       {args.loop}")
     print("=" * 70 + "\n")
 
     # Load model
@@ -253,50 +255,73 @@ def run_inference(args):
     if args.task in ['detect', 'segment']:
         predict_params['iou'] = args.iou
 
+    # Loop mode: force a fixed output folder name + overwrite so the
+    # results directory doesn't accumulate predict, predict2, predict3, …
+    # on every replay iteration.
+    if args.loop and args.save:
+        predict_params['name'] = 'predict_loop'
+        predict_params['exist_ok'] = True
+
     print(f"\nRunning {args.task} inference on: {source}")
+    if args.loop:
+        print("Loop mode: video will replay continuously (press 'q' to quit, "
+              "or stop the container)")
     print("Press 'q' to quit\n")
 
     frame_count = 0
+    iteration = 0
+    user_quit = False
+
     try:
-        results = model.predict(**predict_params)
-        for result in results:
-            frame_count += 1
+        while True:
+            iteration += 1
+            if args.loop and iteration > 1:
+                print(f"\n[loop] replay #{iteration} starting...\n")
 
-            if args.task == 'detect':
-                if result.boxes is not None and len(result.boxes) > 0:
-                    num_detections = len(result.boxes)
-                    print(f"Frame {frame_count}: {num_detections} objects detected")
-                    classes = result.boxes.cls.cpu().numpy()
-                    names = result.names
-                    unique_classes = set([names[int(c)] for c in classes])
-                    print(f"  Classes: {', '.join(sorted(unique_classes))}")
+            results = model.predict(**predict_params)
+            for result in results:
+                frame_count += 1
 
-            elif args.task == 'segment':
-                if result.masks is not None and len(result.masks) > 0:
-                    num_segments = len(result.masks)
-                    print(f"Frame {frame_count}: {num_segments} instances segmented")
-                    if result.boxes is not None:
+                if args.task == 'detect':
+                    if result.boxes is not None and len(result.boxes) > 0:
+                        num_detections = len(result.boxes)
+                        print(f"Frame {frame_count}: {num_detections} objects detected")
                         classes = result.boxes.cls.cpu().numpy()
                         names = result.names
                         unique_classes = set([names[int(c)] for c in classes])
                         print(f"  Classes: {', '.join(sorted(unique_classes))}")
 
-            elif args.task == 'classify':
-                if result.probs is not None:
-                    top1_idx = result.probs.top1
-                    top1_conf = result.probs.top1conf.item()
-                    class_name = result.names[top1_idx]
-                    print(f"Image {frame_count}: {class_name} ({top1_conf:.2%} confidence)")
-                    if hasattr(result.probs, 'top5'):
-                        print("  Top 5 predictions:")
-                        for idx in result.probs.top5:
-                            conf = result.probs.data[idx].item()
-                            name = result.names[idx]
-                            print(f"    {name}: {conf:.2%}")
+                elif args.task == 'segment':
+                    if result.masks is not None and len(result.masks) > 0:
+                        num_segments = len(result.masks)
+                        print(f"Frame {frame_count}: {num_segments} instances segmented")
+                        if result.boxes is not None:
+                            classes = result.boxes.cls.cpu().numpy()
+                            names = result.names
+                            unique_classes = set([names[int(c)] for c in classes])
+                            print(f"  Classes: {', '.join(sorted(unique_classes))}")
 
-            if args.show and cv2.waitKey(1) & 0xFF == ord('q'):
-                print("\nStopping inference...")
+                elif args.task == 'classify':
+                    if result.probs is not None:
+                        top1_idx = result.probs.top1
+                        top1_conf = result.probs.top1conf.item()
+                        class_name = result.names[top1_idx]
+                        print(f"Image {frame_count}: {class_name} ({top1_conf:.2%} confidence)")
+                        if hasattr(result.probs, 'top5'):
+                            print("  Top 5 predictions:")
+                            for idx in result.probs.top5:
+                                conf = result.probs.data[idx].item()
+                                name = result.names[idx]
+                                print(f"    {name}: {conf:.2%}")
+
+                if args.show and cv2.waitKey(1) & 0xFF == ord('q'):
+                    print("\nStopping inference...")
+                    user_quit = True
+                    break
+
+            if user_quit or not args.loop:
                 break
+            # else: video ended naturally and --loop is on → replay
 
     except KeyboardInterrupt:
         print("\n\nInference stopped by user")
@@ -306,7 +331,8 @@ def run_inference(args):
         traceback.print_exc()
         return
 
-    print(f"\n✓ Inference completed ({frame_count} frames processed)")
+    suffix = f" across {iteration} iteration{'s' if iteration > 1 else ''}" if args.loop else ""
+    print(f"\n✓ Inference completed ({frame_count} frames processed{suffix})")
     if args.save:
         print(f"✓ Results saved to: {args.save_dir}")
 
@@ -342,6 +368,10 @@ Examples:
                         help='Save results to output directory')
     parser.add_argument('--save-dir', type=str, default='/advantech/results',
                         help='Directory to save results (default: /advantech/results)')
+    parser.add_argument('--loop', action='store_true',
+                        help='Replay the input video (or repeat the image) '
+                             'continuously until "q" is pressed or the '
+                             'container is stopped')
 
     args = parser.parse_args()
 

@@ -1,0 +1,37 @@
+# Keep build context lean — only Dockerfile + COPY targets reach the daemon.
+.git
+.gitignore
+.claude
+.vscode
+.idea
+
+# Documentation / media not needed inside the image
+README.md
+LICENSE
+troubleshooting_yolo11.md
+*.md
+data/*.gif
+data/*.png
+
+# Build artefacts and local results
+results/
+diagnostics/
+*.tar
+*.engine
+*.onnx
+# NOTE: models/ is NOT excluded — Dockerfiles COPY weights from models/
+#       so the image is offline-buildable.
+
+# Compose / shell helpers — image is self-contained, doesn't need them
+docker-compose.yml
+build.sh
+wise-bench.sh
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Sources we don't ship in the detect-demo image
+src/advantech-coe-model-export.py
+src/advantech-coe-model-load.py

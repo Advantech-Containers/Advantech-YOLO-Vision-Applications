@@ -1,0 +1,77 @@
+# syntax=docker/dockerfile:1.6
+# ==========================================================================
+# Advantech YOLO Vision Application — Detection Demo Image
+# ==========================================================================
+# Bakes the application sources, demo video, and the yolo11n detection
+# weights on top of the Advantech YOLO base image so the container runs
+# the detection pipeline end-to-end without any host-side mounts.
+#
+# Build:
+#   docker build -t advantech-yolo-vision:detect-demo .
+#
+# Run (Jetson, headless):
+#   docker run --rm --runtime=nvidia --network=host \
+#     advantech-yolo-vision:detect-demo
+#
+# Run with X11 display:
+#   xhost +local:docker
+#   docker run --rm --runtime=nvidia --network=host \
+#     -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix \
+#     advantech-yolo-vision:detect-demo \
+#     python3 src/advantech-yolo.py \
+#       --task detect --model yolo11n.pt --input data/test.mp4 --show
+# ==========================================================================
+FROM edgesync.azurecr.io/advantech/advantech-yolo-vision-applications:1.6.0-Ubuntu22.04-ARM
+
+LABEL maintainer="Kevin.Chien" \
+      vendor="Advantech" \
+      description="YOLO11 detection demo on data/test.mp4 (self-contained)" \
+      base.image="advantech-yolo-vision-applications:1.6.0-Ubuntu22.04-ARM"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    YOLO_CONFIG_DIR=/advantech/.config/Ultralytics
+
+WORKDIR /advantech
+
+# --- Heavy / rarely-changing layers go first so editing src/ does not
+#     re-trigger apt-get install or pip install on every rebuild. ---
+
+# Demo video asset — small, rarely changes.
+COPY data/test.mp4                data/test.mp4
+
+# Swap headless OpenCV for the GUI build so cv2.imshow() works against an
+# X11 display, and pull in the GTK / Qt runtime libs the wheel needs at
+# load time. Without this, --show raises:
+#   "Rebuild the library with Windows, GTK+ 2.x or Cocoa support"
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        libsm6 libxext6 libxrender1 libfontconfig1 libdbus-1-3 \
+        libxkbcommon0 libxkbcommon-x11-0 \
+        libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+        libxcb-render-util0 libxcb-render0 libxcb-shape0 libxcb-sync1 \
+        libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 libxcb-cursor0 libxcb-util1 \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip3 uninstall -y opencv-python-headless || true \
+ && pip3 install --no-cache-dir "opencv-python==4.11.0.86"
+
+# Ship the detection weights with the image so the build is fully offline
+# (no GitHub fetch from ultralytics' assets release at build time) and
+# the file is reproducibly the one in models/.
+COPY models/yolo11n.pt            yolo11n.pt
+RUN mkdir -p /advantech/results
+
+# Application source LAST so iterating on it only rebuilds the final layer.
+COPY src/advantech-yolo.py        src/advantech-yolo.py
+
+# Default: run the detection example on the bundled demo video, save
+# annotated output under /advantech/results. Override CMD to use --show,
+# a different model, or another input source.
+CMD ["python3", "src/advantech-yolo.py", \
+     "--task", "detect", \
+     "--model", "yolo11n.pt", \
+     "--input", "data/test.mp4", \
+     "--conf", "0.25", \
+     "--device", "0", \
+     "--save", \
+     "--save-dir", "/advantech/results"]
