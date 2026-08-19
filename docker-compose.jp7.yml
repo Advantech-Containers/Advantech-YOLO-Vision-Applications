@@ -1,13 +1,42 @@
 # ==============================================================================
 # Advantech YOLO Vision (JetPack 7 / Jetson Thor) — Docker Compose
 #
-# Modelled on Application_Demo_Container_Project/CV_demo — the validated Thor
-# demos — NOT on docker-compose.jp6.yml. The JP6 file targets Orin/L4T r36 and
-# deploys a different image (edge-coa/yolo-od-demo) under the WEDA AMM
-# model-slot scenario; this file builds and runs THIS repo's application.
+# SELF-CONTAINED: this file is the whole deployment. Copy just this one file to
+# the edge device and run it — there is no .env, and nothing else needs to be
+# present next to it:
 #
-# Run:  ./build.jp7.sh
-# or:   docker compose -f docker-compose.jp7.yml --env-file .env.jp7 up -d
+#     scp docker-compose.jp7.yml <device>:~/docker-compose.yml
+#     ssh <device> 'docker compose up -d'
+#
+# Every value below is inlined with a ${VAR:-default} default, so it runs with
+# no environment set, and any single value can still be overridden ad hoc:
+#
+#     YOLO_TASK=segment YOLO_MODEL=models/yolo11n-seg.pt docker compose up -d
+#
+# ------------------------------------------------------------------------------
+# THE IMAGE MUST ALREADY BE ON THE DEVICE. There is deliberately no `build:`
+# section: building needs src/, data/ and models/ from the repo, which by
+# definition are not there when you ship only this file. Build and load it with
+# one of:
+#     # on the device, from a full checkout:
+#     docker build -f Dockerfile.jp7 -t advantech-yolo-vision:jp7-demo .
+#     # or stream a locally-built image over:
+#     docker save advantech-yolo-vision:jp7-demo | gzip -1 \
+#       | ssh <device> 'gunzip -c | docker load'
+#
+# For the same reason there are NO source bind-mounts here. The repo-side dev
+# convenience of mounting ./src, ./data, ./models and ./entrypoint.jp7.sh over
+# the image is REMOVED on purpose: with only this file present Docker would
+# create those paths EMPTY and mount them over the image's own copies (and turn
+# entrypoint.jp7.sh into a directory), so the container would fail with no
+# obvious cause. The image already contains all four. Only ./results — an
+# output directory, safe to autocreate — is still bind-mounted.
+#
+# ------------------------------------------------------------------------------
+# LICENCE GATE: Ultralytics is BYOL and is NOT in the image. The container
+# cannot run inference until you accept its terms. Either flip the default on
+# the line marked [EULA] below, or start with:
+#     ACCEPT_ULTRALYTICS_EULA=true docker compose up -d
 #
 # ------------------------------------------------------------------------------
 # THOR NOTES (why this differs from the JP6 wiring)
@@ -19,26 +48,27 @@
 #    /dev is bind-mounted wholesale instead, as CV_demo does.
 #
 #  * `deploy.resources.reservations.devices: driver: nvidia` requests a CDI
-#    device, which forces the nvidia runtime down the CDI path on Thor.
-#    Setting NVIDIA_CONTAINER_RUNTIME_MODE=csv on the container does NOT
-#    override this. See CV_demo/weda-cv-vlm/TROUBLESHOOTING.md §9.11.
+#    device, which forces the nvidia runtime down the CDI path on a device that
+#    has /etc/cdi/nvidia.yaml. NVIDIA_CONTAINER_RUNTIME_MODE=csv does NOT
+#    override it. See CV_demo/weda-cv-vlm/TROUBLESHOOTING.md §9.11.
 #
-#  * Thor's CDI spec (/etc/cdi/nvidia.yaml) ships CUDA/EGL/Vulkan but ZERO
-#    GStreamer entries, so libgstnv*.so is never injected and video decode
-#    falls back to CPU. This file ships the per-container fix (§9.11 Fix B):
-#    bind-mount the host plugins to /opt/nvgst and their dep libs to
-#    /opt/nvhostlibs. `privileged: true` does not help — privilege grants
-#    capabilities, not file visibility.
+#  * A CDI spec ships CUDA/EGL/Vulkan but ZERO GStreamer entries, so libgstnv*
+#    is never injected and video decode falls back to CPU. This file ships the
+#    per-container fix (§9.11 Fix B): host plugins to /opt/nvgst, their dep libs
+#    to /opt/nvhostlibs. Verified a harmless no-op on a CSV-mode box such as
+#    aimb294 (which has no /etc/cdi/nvidia.yaml) — keep it, it is what makes the
+#    same file work on a CDI-mode Thor.
 # ==============================================================================
+# Pin the project name. Compose otherwise derives it from the DIRECTORY the file
+# sits in, so the same file in ~/yolo and ~/deploy would be two projects fighting
+# over one named BYOL volume ("volume ... was created for project X, expected Y").
+# Pinning it means this file behaves identically wherever it is dropped.
+name: advantech-yolo-jp7
+
 services:
   advantech-yolo:
-    image: ${YOLO_JP7_IMAGE}
-    # Build from Dockerfile.jp7; context is the repo root so COPY can reach
-    # src/, data/, and models/.
-    build:
-      context: .
-      dockerfile: Dockerfile.jp7
-    container_name: ${CONTAINER_NAME}
+    image: ${YOLO_JP7_IMAGE:-advantech-yolo-vision:jp7-demo}
+    container_name: ${CONTAINER_NAME:-advantech-yolo-jp7}
     restart: "no"
     runtime: nvidia
     privileged: true
@@ -55,28 +85,31 @@ services:
     shm_size: '1gb'
     environment:
       # ── Display ─────────────────────────────────────────────────────────────
-      - DISPLAY=${DISPLAY}
+      # DISPLAY :0 and the GDM cookie are correct for a standard single-seat
+      # Jetson desktop. Override both if the device runs a different session.
+      - DISPLAY=${DISPLAY:-:0}
       - XAUTHORITY=/tmp/.Xauthority
       # ── NVIDIA ──────────────────────────────────────────────────────────────
-      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES}
-      - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES}
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-compute,video,utility,graphics,display}
       # ── Libraries (see THOR NOTES / TROUBLESHOOTING §9.11) ───────────────────
-      - LD_LIBRARY_PATH=/opt/nvhostlibs:${LD_LIBRARY_PATH}
+      - LD_LIBRARY_PATH=/opt/nvhostlibs:${LD_LIBRARY_PATH:-/usr/local/lib:/usr/local/cuda/lib64:/usr/lib/aarch64-linux-gnu/tegra}
       - GST_PLUGIN_PATH=/opt/nvgst
       # ── Qt / GUI Stability ──────────────────────────────────────────────────
-      - QT_X11_NO_MITSHM=${QT_X11_NO_MITSHM}
-      - NO_AT_SPI=${NO_AT_SPI}
-      - DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS}
-      # ── EULA ────────────────────────────────────────────────────────────────
-      - ACCEPT_ULTRALYTICS_EULA=${ACCEPT_ULTRALYTICS_EULA}
-      - ACCEPT_COMMERCIAL_EULA=${ACCEPT_ULTRALYTICS_EULA}
+      - QT_X11_NO_MITSHM=${QT_X11_NO_MITSHM:-1}
+      - NO_AT_SPI=${NO_AT_SPI:-1}
+      - DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS:-/dev/null}
+      # ── [EULA] Ultralytics is BYOL — see LICENCE GATE above ─────────────────
+      # Change the default to `true` here to accept the terms permanently.
+      - ACCEPT_ULTRALYTICS_EULA=${ACCEPT_ULTRALYTICS_EULA:-false}
+      - ACCEPT_COMMERCIAL_EULA=${ACCEPT_ULTRALYTICS_EULA:-false}
       # ── BYOL Packages ───────────────────────────────────────────────────────
       # Declared here (not just exported by entrypoint.sh) so that `docker exec`
       # shells resolve the BYOL install too.
       - WEDA_CV_BYOL_DIR=/opt/weda-cv/byol
       - PYTHONPATH=/opt/weda-cv/byol
-      - ULTRALYTICS_VERSION=${ULTRALYTICS_VERSION}
-      - ULTRALYTICS_THOP_VERSION=${ULTRALYTICS_THOP_VERSION}
+      - ULTRALYTICS_VERSION=${ULTRALYTICS_VERSION:-8.4.24}
+      - ULTRALYTICS_THOP_VERSION=${ULTRALYTICS_THOP_VERSION:-2.0.18}
       # ── Application ─────────────────────────────────────────────────────────
       - YOLO_CONFIG_DIR=/wise-edge/advantech-yolo/.config/Ultralytics
       - YOLO_AUTOINSTALL=false
@@ -85,19 +118,14 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
       # ── X11 Display ─────────────────────────────────────────────────────────
-      - ${X11_SOCKET}:/tmp/.X11-unix:rw
-      - ${XAUTHORITY}:/tmp/.Xauthority:ro
+      - ${X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix:rw
+      - ${XAUTHORITY:-/run/user/1000/gdm/Xauthority}:/tmp/.Xauthority:ro
       # ── Device Access (Thor: no /dev/nvgpu — see THOR NOTES) ────────────────
       - /dev:/dev:rw
       # ── NVIDIA GStreamer plugins + dep libs (Thor CDI gap, §9.11 Fix B) ─────
       - /usr/lib/aarch64-linux-gnu/gstreamer-1.0:/opt/nvgst:ro
       - /usr/lib/aarch64-linux-gnu/nvidia:/opt/nvhostlibs:ro
-      # ── Source (live edit, no rebuild required) ──────────────────────────────
-      - ./src:/wise-edge/advantech-yolo/src:ro
-      - ./data:/wise-edge/advantech-yolo/data:ro
-      - ./models:/wise-edge/advantech-yolo/models:ro
-      - ./entrypoint.jp7.sh:/wise-edge/advantech-yolo/entrypoint.sh:ro
-      # ── Persistent Output ───────────────────────────────────────────────────
+      # ── Persistent Output (the ONLY source-tree mount — safe to autocreate) ─
       - ./results:/wise-edge/advantech-yolo/output:rw
       # ── BYOL Packages (persisted: hydrate once per device, not per launch) ──
       - byol:/opt/weda-cv/byol:rw
@@ -118,25 +146,29 @@ services:
       - /bin/bash
       - -lc
       - |
-        if [ "${YOLO_AUTOSTART}" = "true" ]; then
+        if [ "${YOLO_AUTOSTART:-true}" = "true" ]; then
           exec python3 src/advantech-yolo.py \
-            --task "${YOLO_TASK}" --model "${YOLO_MODEL}" --input "${YOLO_INPUT}" \
-            --conf "${YOLO_CONF}" --device "${YOLO_DEVICE}" \
-            ${YOLO_SHOW} ${YOLO_LOOP} --save --save-dir /wise-edge/advantech-yolo/output
+            --task "${YOLO_TASK:-detect}" \
+            --model "${YOLO_MODEL:-models/yolo11n.pt}" \
+            --input "${YOLO_INPUT:-data/test.mp4}" \
+            --conf "${YOLO_CONF:-0.25}" \
+            --device "${YOLO_DEVICE:-0}" \
+            ${YOLO_SHOW:---show} ${YOLO_LOOP:---loop} \
+            --save --save-dir /wise-edge/advantech-yolo/output
         fi
         exec /bin/bash
     logging:
       driver: "json-file"
       options:
-        max-size: "${LOG_MAX_SIZE}"
-        max-file: "${LOG_MAX_FILE}"
+        max-size: "${LOG_MAX_SIZE:-20m}"
+        max-file: "${LOG_MAX_FILE:-3}"
 
 # ==============================================================================
 # Named volume holding the licensed (BYOL) Ultralytics install. Kept outside the
 # container lifecycle so that recreating the container does not force a network
 # re-install — the root cause of the hydration timeouts on slow links.
-# Purge with: ./build.jp7.sh --clean
+# Purge with: docker volume rm advantech-yolo-jp7-byol
 # ==============================================================================
 volumes:
   byol:
-    name: ${BYOL_VOLUME}
+    name: ${BYOL_VOLUME:-advantech-yolo-jp7-byol}

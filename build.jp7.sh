@@ -50,37 +50,22 @@ for arg in "$@"; do
     esac
 done
 
-# ── Load Static Config from .env.jp7 ──────────────────────────────────────────
-readonly ENV_FILE="${SCRIPT_DIR}/.env.jp7"
+# ── Static Config ─────────────────────────────────────────────────────────────
+# There is no .env file. docker-compose.jp7.yml is self-contained so that a
+# single file can be shipped to an edge device; these values mirror its
+# ${VAR:-default} defaults and exist only for this script's own bookkeeping
+# (container lookups, volume purge, hydration polling). Change a default in the
+# compose file and mirror it here.
 readonly COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.jp7.yml"
+readonly DOCKERFILE="${SCRIPT_DIR}/Dockerfile.jp7"
 readonly APP_DIR="/wise-edge/advantech-yolo"
+readonly YOLO_JP7_IMAGE="${YOLO_JP7_IMAGE:-advantech-yolo-vision:jp7-demo}"
+readonly CONTAINER_NAME="${CONTAINER_NAME:-advantech-yolo-jp7}"
+readonly SERVICE_NAME="${SERVICE_NAME:-advantech-yolo}"
+readonly BYOL_VOLUME="${BYOL_VOLUME:-advantech-yolo-jp7-byol}"
+readonly HYDRATION_TIMEOUT="${HYDRATION_TIMEOUT:-300}"
 
-[[ -f "${ENV_FILE}" ]] || log_error ".env.jp7 not found at ${ENV_FILE}"
 [[ -f "${COMPOSE_FILE}" ]] || log_error "docker-compose.jp7.yml not found at ${COMPOSE_FILE}"
-
-set -a
-# shellcheck disable=SC1090
-source "${ENV_FILE}"
-set +a
-
-# ── Static Variable Validation ────────────────────────────────────────────────
-REQUIRED_STATIC=(
-    YOLO_JP7_IMAGE
-    CONTAINER_NAME
-    SERVICE_NAME
-    NVIDIA_VISIBLE_DEVICES
-    NVIDIA_DRIVER_CAPABILITIES
-    ACCEPT_ULTRALYTICS_EULA
-    BYOL_VOLUME
-    ULTRALYTICS_VERSION
-    ULTRALYTICS_THOP_VERSION
-)
-
-MISSING=()
-for var in "${REQUIRED_STATIC[@]}"; do
-    [[ -z "${!var:-}" ]] && MISSING+=("${var}")
-done
-[[ ${#MISSING[@]} -gt 0 ]] && log_error "Missing required vars in .env.jp7: ${MISSING[*]}"
 
 # ── Handle --stop / --clean ───────────────────────────────────────────────────
 if [[ "${MODE}" == "stop" || "${MODE}" == "clean" ]]; then
@@ -91,7 +76,7 @@ if [[ "${MODE}" == "stop" || "${MODE}" == "clean" ]]; then
         export X11_SOCKET=${X11_SOCKET:-/tmp/.X11-unix}
         export XAUTHORITY=${XAUTHORITY:-/tmp/.Xauthority}
         export DISPLAY=${DISPLAY:-:0}
-        docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" down --remove-orphans
+        docker compose -f "${COMPOSE_FILE}" down --remove-orphans
         log_success "Container stopped and removed."
     else
         log_warn "Container '${CONTAINER_NAME}' is not running."
@@ -209,8 +194,8 @@ log_success "X11 ready — DISPLAY=${DISPLAY} | XAUTHORITY=${XAUTHORITY}"
 # ── [3/N] EULA / BYOL License Gate ───────────────────────────────────────────
 echo -e "\n\033[1;34m[3/${TOTAL_STEPS}] BYOL License Acceptance...\033[0m"
 
-if [[ "${ACCEPT_ULTRALYTICS_EULA}" == "true" ]]; then
-    log_success "ACCEPT_ULTRALYTICS_EULA=true (set in .env.jp7) — skipping prompt."
+if [[ "${ACCEPT_ULTRALYTICS_EULA:-false}" == "true" ]]; then
+    log_success "ACCEPT_ULTRALYTICS_EULA=true (set in the environment) — skipping prompt."
 else
     echo -e "\033[1;36m╔══════════════════════════════════════════════════════════════════════╗\033[0m"
     echo -e "\033[1;36m║             Ultralytics Component License (BYOL)                     ║\033[0m"
@@ -225,7 +210,7 @@ else
     if ! read -r USER_ACCEPT; then
         echo ""
         log_error "No input available — this shell is not interactive.
-       Set ACCEPT_ULTRALYTICS_EULA=true in .env.jp7 to accept unattended."
+       Export ACCEPT_ULTRALYTICS_EULA=true to accept unattended."
     fi
     USER_ACCEPT_LOWER=$(echo "${USER_ACCEPT}" | tr '[:upper:]' '[:lower:]')
     if [[ "${USER_ACCEPT_LOWER}" == "yes" || "${USER_ACCEPT_LOWER}" == "y" ]]; then
@@ -241,8 +226,8 @@ fi
 STEP=4
 if [[ "${MODE}" == "build" ]]; then
     echo -e "\n\033[1;34m[${STEP}/${TOTAL_STEPS}] Building image from Dockerfile.jp7...\033[0m"
-    if docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" \
-            build "${SERVICE_NAME}"; then
+    [[ -f "${DOCKERFILE}" ]] || log_error "Dockerfile.jp7 not found at ${DOCKERFILE}"
+    if docker build -f "${DOCKERFILE}" -t "${YOLO_JP7_IMAGE}" "${SCRIPT_DIR}"; then
         log_success "Image built: ${YOLO_JP7_IMAGE}"
     elif docker image inspect "${YOLO_JP7_IMAGE}" &> /dev/null; then
         log_warn "Build failed — falling back to the existing local image."
@@ -260,7 +245,7 @@ echo -e "\n\033[1;34m[${STEP}/${TOTAL_STEPS}] Launching container...\033[0m"
 # Let Compose decide whether to reuse or recreate. Force-removing the container
 # on every run discards the hydrated layer, forcing a full apt + BYOL re-install
 # each launch.
-docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" \
+docker compose -f "${COMPOSE_FILE}" \
     up -d --remove-orphans "${SERVICE_NAME}"
 
 log_success "Container '${CONTAINER_NAME}' is live."
@@ -318,7 +303,7 @@ if [[ "${READY}" != "true" ]]; then
     else
         echo -e "\n  [\033[1;31mTIMEOUT\033[0m]"
         log_warn "Hydration did not complete within ${TIMEOUT}s."
-        log_warn "Raise HYDRATION_TIMEOUT in .env.jp7 if this device is on a slow link."
+        log_warn "Raise HYDRATION_TIMEOUT in the environment if this device is on a slow link."
     fi
 
     echo ""
