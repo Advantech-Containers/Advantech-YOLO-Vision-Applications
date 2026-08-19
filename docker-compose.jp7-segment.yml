@@ -1,17 +1,25 @@
 # ==============================================================================
-# Advantech YOLO Vision (JetPack 7 / Jetson Thor) — Docker Compose
+# Advantech YOLO Vision (JetPack 7 / Jetson Thor) — Instance Segmentation Demo
+#
+# One of three sibling demos over the SAME image: docker-compose.jp7.yml
+# (detect), -segment.yml, -classify.yml. The image bakes all three weight
+# sets and the app takes --task, so nothing here needs its own build.
+# Each file pins its own project name, container name and BYOL volume, so
+# all three can run side by side without fighting over either.
+#
+# Segmentation uses --iou for NMS; the app applies it to detect and segment only.
 #
 # SELF-CONTAINED: this file is the whole deployment. Copy just this one file to
 # the edge device and run it — there is no .env, and nothing else needs to be
 # present next to it:
 #
-#     scp docker-compose.jp7.yml <device>:~/docker-compose.yml
+#     scp docker-compose.jp7-segment.yml <device>:~/docker-compose.yml
 #     ssh <device> 'docker compose up -d'
 #
 # Every value below is inlined with a ${VAR:-default} default, so it runs with
 # no environment set, and any single value can still be overridden ad hoc:
 #
-#     YOLO_TASK=segment YOLO_MODEL=models/yolo11n-seg.pt docker compose up -d
+#     YOLO_CONF=0.4 docker compose up -d
 #
 # ------------------------------------------------------------------------------
 # THE IMAGE COMES FROM HARBOR. The default ref is pushed and linux/arm64, so a
@@ -66,12 +74,12 @@
 # sits in, so the same file in ~/yolo and ~/deploy would be two projects fighting
 # over one named BYOL volume ("volume ... was created for project X, expected Y").
 # Pinning it means this file behaves identically wherever it is dropped.
-name: advantech-yolo-jp7
+name: advantech-yolo-jp7-segment
 
 services:
   advantech-yolo:
     image: ${YOLO_JP7_IMAGE:-harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-demo}
-    container_name: ${CONTAINER_NAME:-advantech-yolo-jp7}
+    container_name: ${CONTAINER_NAME:-advantech-yolo-jp7-segment}
     restart: "no"
     runtime: nvidia
     privileged: true
@@ -151,13 +159,14 @@ services:
       - |
         if [ "${YOLO_AUTOSTART:-true}" = "true" ]; then
           exec python3 src/advantech-yolo.py \
-            --task "${YOLO_TASK:-detect}" \
-            --model "${YOLO_MODEL:-models/yolo11n.pt}" \
+            --task "${YOLO_TASK:-segment}" \
+            --model "${YOLO_MODEL:-models/yolo11n-seg.pt}" \
             --input "${YOLO_INPUT:-data/test.mp4}" \
             --conf "${YOLO_CONF:-0.25}" \
             --device "${YOLO_DEVICE:-0}" \
+            --iou "${YOLO_IOU:-0.45}" \
             ${YOLO_SHOW:---show} ${YOLO_LOOP:---loop} \
-            --save --save-dir "/wise-edge/advantech-yolo/output/${YOLO_TASK:-detect}"
+            --save --save-dir "/wise-edge/advantech-yolo/output/${YOLO_TASK:-segment}"
         fi
         exec /bin/bash
     logging:
@@ -170,8 +179,8 @@ services:
 # Named volume holding the licensed (BYOL) Ultralytics install. Kept outside the
 # container lifecycle so that recreating the container does not force a network
 # re-install — the root cause of the hydration timeouts on slow links.
-# Purge with: docker volume rm advantech-yolo-jp7-byol
+# Purge with: docker volume rm advantech-yolo-jp7-segment-byol
 # ==============================================================================
 volumes:
   byol:
-    name: ${BYOL_VOLUME:-advantech-yolo-jp7-byol}
+    name: ${BYOL_VOLUME:-advantech-yolo-jp7-segment-byol}
