@@ -16,8 +16,30 @@
 #     OpenCV; reinstalling the x86-style opencv-python wheel over it is how you
 #     lose CUDA/NVMM support on this platform.
 #
-# Build (context is the repo root, not this file's directory):
-#   docker build -f Dockerfile.jp7 -t advantech-yolo-vision:jp7-demo .
+# ONE DOCKERFILE, THREE PURPOSE-BUILT IMAGES. Each image carries only the
+# weights for its own task and defaults to running it:
+#
+#   docker build -f Dockerfile.jp7 --build-arg YOLO_TASK=detect \
+#     --build-arg YOLO_WEIGHTS=yolo11n.pt \
+#     -t harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-detect .
+#   docker build -f Dockerfile.jp7 --build-arg YOLO_TASK=segment \
+#     --build-arg YOLO_WEIGHTS=yolo11n-seg.pt \
+#     -t harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-segment .
+#   docker build -f Dockerfile.jp7 --build-arg YOLO_TASK=classify \
+#     --build-arg YOLO_WEIGHTS=yolo11n-cls.pt \
+#     -t harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-classify .
+#
+# Or all three at once: ./build.jp7.sh --task all
+#
+# It is a single parameterised Dockerfile rather than three near-identical
+# copies (the JP6 Dockerfile/.segment/.classify trio) for two reasons. One,
+# three copies drift -- the JP6 set already has. Two, and more important, EVERY
+# INSTRUCTION BEFORE THE WEIGHTS IS BYTE-IDENTICAL ACROSS THE THREE BUILDS, so
+# all the expensive layers (the 12 GB base, apt, demo video, sources) resolve to
+# the same digests and are stored ONCE in harbor and once on the device. The
+# three images cost ~12 GB in total, not ~36 GB. Reordering anything below the
+# divergence marker into the common section, or vice versa, silently breaks
+# that sharing.
 #
 # Run: use build.jp7.sh — it detects X11 and waits out first-run hydration.
 # ==============================================================================
@@ -60,11 +82,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Demo video asset — small, rarely changes.
 COPY data/test.mp4  data/test.mp4
 
-# Ship all three weight sets so the image runs detect, segment, and classify
-# offline (no ultralytics assets fetch at first run) and reproducibly from
-# models/. Only ~17 MB total.
-COPY models/  models/
-
 RUN mkdir -p /wise-edge/advantech-yolo/output \
              /wise-edge/advantech-yolo/.config/Ultralytics
 
@@ -72,7 +89,8 @@ RUN mkdir -p /wise-edge/advantech-yolo/output \
 COPY entrypoint.jp7.sh  entrypoint.sh
 RUN chmod +x entrypoint.sh
 
-# Application source LAST so iterating on it only rebuilds the final layer.
+# Application source LAST among the shared layers, so iterating on it rebuilds
+# only the tail of the image.
 COPY src/advantech-yolo.py  src/advantech-yolo.py
 
 # Hydration is fail-safe: the container stays up even if it fails, so the
@@ -82,12 +100,33 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
 
 ENTRYPOINT ["/wise-edge/advantech-yolo/entrypoint.sh"]
 
-# Default: detection on the bundled demo video, annotated output under output/.
-CMD ["python3", "src/advantech-yolo.py", \
-     "--task", "detect", \
-     "--model", "models/yolo11n.pt", \
-     "--input", "data/test.mp4", \
-     "--conf", "0.25", \
-     "--device", "0", \
-     "--save", \
-     "--save-dir", "/wise-edge/advantech-yolo/output"]
+# ==============================================================================
+# ---------------------------- DIVERGENCE MARKER -------------------------------
+# Everything ABOVE is identical across the three images and is therefore stored
+# once. Everything BELOW is per-task and costs ~6 MB per image. Keep it that
+# way: an ARG referenced above this line would fork the whole image.
+# ==============================================================================
+ARG YOLO_TASK=detect
+ARG YOLO_WEIGHTS=yolo11n.pt
+
+# Only this task's weights. Baked in so the image runs offline with no
+# ultralytics assets fetch, and reproducibly from models/.
+COPY models/${YOLO_WEIGHTS}  models/${YOLO_WEIGHTS}
+
+# Promote the build args to runtime env so the CMD below -- and anyone who
+# execs into the container -- can see what this image is for.
+ENV YOLO_TASK=${YOLO_TASK} \
+    YOLO_MODEL=models/${YOLO_WEIGHTS}
+
+LABEL com.advantech.task="${YOLO_TASK}" \
+      com.advantech.weights="${YOLO_WEIGHTS}"
+
+# Default: run THIS image's task on the bundled demo video, annotated output
+# under output/<task>/. --iou is deliberately absent: the app defaults it to
+# 0.45 and applies it to detect and segment only, so one CMD serves all three.
+# Shell form because the args come from ENV; entrypoint.sh execs "$@".
+CMD ["bash", "-lc", \
+     "exec python3 src/advantech-yolo.py \
+        --task \"$YOLO_TASK\" --model \"$YOLO_MODEL\" \
+        --input data/test.mp4 --conf 0.25 --device 0 \
+        --save --save-dir \"/wise-edge/advantech-yolo/output/$YOLO_TASK\""]

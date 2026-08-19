@@ -1,9 +1,10 @@
 # ==============================================================================
 # Advantech YOLO Vision (JetPack 7 / Jetson Thor) — Instance Segmentation Demo
 #
-# One of three sibling demos over the SAME image: docker-compose.jp7.yml
-# (detect), -segment.yml, -classify.yml. The image bakes all three weight
-# sets and the app takes --task, so nothing here needs its own build.
+# One of three sibling demos: docker-compose.jp7.yml (detect), -segment.yml,
+# -classify.yml. Each runs its OWN image, carrying only that task's weights.
+# The three are built from one parameterised Dockerfile.jp7 and share every
+# layer below the weights, so they cost ~12 GB in total rather than ~36 GB.
 # Each file pins its own project name, container name and BYOL volume, so
 # all three can run side by side without fighting over either.
 #
@@ -30,8 +31,11 @@
 # There is deliberately no `build:` section: building needs src/, data/ and
 # models/ from the repo, which by definition are not there when you ship only
 # this file. To rebuild and republish from a full checkout:
-#     docker build -f Dockerfile.jp7 -t harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-demo .
-#     docker push harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-demo
+#     docker build -f Dockerfile.jp7 \
+#       --build-arg YOLO_TASK=segment \
+#       --build-arg YOLO_WEIGHTS=yolo11n-seg.pt \
+#       -t harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-segment .
+#     docker push harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-segment
 # For an air-gapped device, stream it instead of pulling:
 #     docker save <ref> | gzip -1 | ssh <device> 'gunzip -c | docker load'
 #
@@ -78,7 +82,7 @@ name: advantech-yolo-jp7-segment
 
 services:
   advantech-yolo:
-    image: ${YOLO_JP7_IMAGE:-harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-demo}
+    image: ${YOLO_JP7_IMAGE:-harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-segment}
     container_name: ${CONTAINER_NAME:-advantech-yolo-jp7-segment}
     restart: "no"
     runtime: nvidia

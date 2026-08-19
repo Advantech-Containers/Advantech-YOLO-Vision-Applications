@@ -7,7 +7,10 @@
 # the JP7 image for this repo does not exist in a registry yet.
 #
 # Usage:
-#   ./build.jp7.sh          # Build the image, start it, and enter the container
+#   ./build.jp7.sh                  # detect demo (default)
+#   ./build.jp7.sh --task segment   # segment demo
+#   ./build.jp7.sh --task classify  # classify demo
+#   ./build.jp7.sh --task all       # build all three images, start none
 #   ./build.jp7.sh --run    # Start only (skip build, use existing image)
 #   ./build.jp7.sh --shell  # Attach to an already-running container
 #   ./build.jp7.sh --stop   # Stop and remove the container
@@ -29,8 +32,15 @@ log_error()   { echo -e "\e[1;31m[FAIL]\e[0m  $1" >&2; exit 1; }
 
 # ── Parse Flags ───────────────────────────────────────────────────────────────
 MODE="build"
-for arg in "$@"; do
+TASK="detect"
+while [[ $# -gt 0 ]]; do
+    arg="$1"
     case "$arg" in
+        --task)
+            TASK="${2:-}"
+            [[ -n "${TASK}" ]] || log_error "--task needs a value: detect|segment|classify|all"
+            shift 2; continue ;;
+        --task=*) TASK="${arg#*=}"; shift; continue ;;
         --run)    MODE="run" ;;
         --shell)  MODE="shell" ;;
         --stop)   MODE="stop" ;;
@@ -44,11 +54,19 @@ for arg in "$@"; do
             echo "  --stop      Stop and remove the container"
             echo "  --clean     Stop, remove, and purge the cached BYOL install"
             echo "              (forces a full re-download on the next launch)"
+            echo "  --task T    detect (default) | segment | classify | all"
+            echo "              'all' builds all three images and starts nothing"
             echo "  --help      Show this help message"
             exit 0 ;;
         *) log_error "Unknown option: ${arg} (see --help)" ;;
     esac
+    shift
 done
+
+case "${TASK}" in
+    detect|segment|classify|all) ;;
+    *) log_error "Invalid --task '${TASK}': expected detect|segment|classify|all" ;;
+esac
 
 # ── Static Config ─────────────────────────────────────────────────────────────
 # There is no .env file. docker-compose.jp7.yml is self-contained so that a
@@ -56,13 +74,31 @@ done
 # ${VAR:-default} defaults and exist only for this script's own bookkeeping
 # (container lookups, volume purge, hydration polling). Change a default in the
 # compose file and mirror it here.
-readonly COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.jp7.yml"
 readonly DOCKERFILE="${SCRIPT_DIR}/Dockerfile.jp7"
 readonly APP_DIR="/wise-edge/advantech-yolo"
-readonly YOLO_JP7_IMAGE="${YOLO_JP7_IMAGE:-harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-demo}"
-readonly CONTAINER_NAME="${CONTAINER_NAME:-advantech-yolo-jp7}"
+readonly IMAGE_BASE="harbor.edgesync.cloud/weda-ai/advantech-yolo-vision"
+
+# Each task is its own image, carrying only that task's weights. Keep these in
+# step with the per-task compose files' ${VAR:-default} values.
+weights_for() {
+    case "$1" in
+        detect)   echo "yolo11n.pt" ;;
+        segment)  echo "yolo11n-seg.pt" ;;
+        classify) echo "yolo11n-cls.pt" ;;
+    esac
+}
+
+if [[ "${TASK}" == "detect" ]]; then
+    readonly COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.jp7.yml"
+    readonly CONTAINER_NAME="${CONTAINER_NAME:-advantech-yolo-jp7}"
+    readonly BYOL_VOLUME="${BYOL_VOLUME:-advantech-yolo-jp7-byol}"
+else
+    readonly COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.jp7-${TASK}.yml"
+    readonly CONTAINER_NAME="${CONTAINER_NAME:-advantech-yolo-jp7-${TASK}}"
+    readonly BYOL_VOLUME="${BYOL_VOLUME:-advantech-yolo-jp7-${TASK}-byol}"
+fi
+readonly YOLO_JP7_IMAGE="${YOLO_JP7_IMAGE:-${IMAGE_BASE}:jp7-${TASK}}"
 readonly SERVICE_NAME="${SERVICE_NAME:-advantech-yolo}"
-readonly BYOL_VOLUME="${BYOL_VOLUME:-advantech-yolo-jp7-byol}"
 readonly HYDRATION_TIMEOUT="${HYDRATION_TIMEOUT:-300}"
 
 [[ -f "${COMPOSE_FILE}" ]] || log_error "docker-compose.jp7.yml not found at ${COMPOSE_FILE}"
@@ -227,7 +263,25 @@ STEP=4
 if [[ "${MODE}" == "build" ]]; then
     echo -e "\n\033[1;34m[${STEP}/${TOTAL_STEPS}] Building image from Dockerfile.jp7...\033[0m"
     [[ -f "${DOCKERFILE}" ]] || log_error "Dockerfile.jp7 not found at ${DOCKERFILE}"
-    if docker build -f "${DOCKERFILE}" -t "${YOLO_JP7_IMAGE}" "${SCRIPT_DIR}"; then
+
+    build_task() {
+        local t="$1"
+        log_info "Building ${IMAGE_BASE}:jp7-${t} (weights: $(weights_for "$t"))"
+        docker build -f "${DOCKERFILE}" \
+            --build-arg "YOLO_TASK=${t}" \
+            --build-arg "YOLO_WEIGHTS=$(weights_for "$t")" \
+            -t "${IMAGE_BASE}:jp7-${t}" "${SCRIPT_DIR}"
+    }
+
+    if [[ "${TASK}" == "all" ]]; then
+        for t in detect segment classify; do
+            build_task "$t" || log_error "Build failed for task '${t}'."
+        done
+        log_success "All three images built. Nothing started (--task all builds only)."
+        exit 0
+    fi
+
+    if build_task "${TASK}"; then
         log_success "Image built: ${YOLO_JP7_IMAGE}"
     elif docker image inspect "${YOLO_JP7_IMAGE}" &> /dev/null; then
         log_warn "Build failed — falling back to the existing local image."

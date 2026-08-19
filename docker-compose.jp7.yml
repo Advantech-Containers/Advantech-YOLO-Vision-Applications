@@ -22,8 +22,11 @@
 # There is deliberately no `build:` section: building needs src/, data/ and
 # models/ from the repo, which by definition are not there when you ship only
 # this file. To rebuild and republish from a full checkout:
-#     docker build -f Dockerfile.jp7 -t harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-demo .
-#     docker push harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-demo
+#     docker build -f Dockerfile.jp7 \
+#       --build-arg YOLO_TASK=detect \
+#       --build-arg YOLO_WEIGHTS=yolo11n.pt \
+#       -t harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-detect .
+#     docker push harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-detect
 # For an air-gapped device, stream it instead of pulling:
 #     docker save <ref> | gzip -1 | ssh <device> 'gunzip -c | docker load'
 #
@@ -70,7 +73,7 @@ name: advantech-yolo-jp7
 
 services:
   advantech-yolo:
-    image: ${YOLO_JP7_IMAGE:-harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-demo}
+    image: ${YOLO_JP7_IMAGE:-harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-detect}
     container_name: ${CONTAINER_NAME:-advantech-yolo-jp7}
     restart: "no"
     runtime: nvidia
