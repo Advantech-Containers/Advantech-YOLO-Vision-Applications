@@ -59,7 +59,7 @@ done
 readonly COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.jp7.yml"
 readonly DOCKERFILE="${SCRIPT_DIR}/Dockerfile.jp7"
 readonly APP_DIR="/wise-edge/advantech-yolo"
-readonly YOLO_JP7_IMAGE="${YOLO_JP7_IMAGE:-advantech-yolo-vision:jp7-demo}"
+readonly YOLO_JP7_IMAGE="${YOLO_JP7_IMAGE:-harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-demo}"
 readonly CONTAINER_NAME="${CONTAINER_NAME:-advantech-yolo-jp7}"
 readonly SERVICE_NAME="${SERVICE_NAME:-advantech-yolo}"
 readonly BYOL_VOLUME="${BYOL_VOLUME:-advantech-yolo-jp7-byol}"

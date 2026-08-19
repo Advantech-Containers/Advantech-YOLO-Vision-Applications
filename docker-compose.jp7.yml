@@ -14,15 +14,18 @@
 #     YOLO_TASK=segment YOLO_MODEL=models/yolo11n-seg.pt docker compose up -d
 #
 # ------------------------------------------------------------------------------
-# THE IMAGE MUST ALREADY BE ON THE DEVICE. There is deliberately no `build:`
-# section: building needs src/, data/ and models/ from the repo, which by
-# definition are not there when you ship only this file. Build and load it with
-# one of:
-#     # on the device, from a full checkout:
-#     docker build -f Dockerfile.jp7 -t advantech-yolo-vision:jp7-demo .
-#     # or stream a locally-built image over:
-#     docker save advantech-yolo-vision:jp7-demo | gzip -1 \
-#       | ssh <device> 'gunzip -c | docker load'
+# THE IMAGE COMES FROM HARBOR. The default ref is pushed and linux/arm64, so a
+# device that can reach harbor.edgesync.cloud pulls it automatically on `up` —
+# which is what makes shipping this single file sufficient. The device must be
+# logged in:  docker login harbor.edgesync.cloud
+#
+# There is deliberately no `build:` section: building needs src/, data/ and
+# models/ from the repo, which by definition are not there when you ship only
+# this file. To rebuild and republish from a full checkout:
+#     docker build -f Dockerfile.jp7 -t harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-demo .
+#     docker push harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-demo
+# For an air-gapped device, stream it instead of pulling:
+#     docker save <ref> | gzip -1 | ssh <device> 'gunzip -c | docker load'
 #
 # For the same reason there are NO source bind-mounts here. The repo-side dev
 # convenience of mounting ./src, ./data, ./models and ./entrypoint.jp7.sh over
@@ -67,7 +70,7 @@ name: advantech-yolo-jp7
 
 services:
   advantech-yolo:
-    image: ${YOLO_JP7_IMAGE:-advantech-yolo-vision:jp7-demo}
+    image: ${YOLO_JP7_IMAGE:-harbor.edgesync.cloud/weda-ai/advantech-yolo-vision:jp7-demo}
     container_name: ${CONTAINER_NAME:-advantech-yolo-jp7}
     restart: "no"
     runtime: nvidia
