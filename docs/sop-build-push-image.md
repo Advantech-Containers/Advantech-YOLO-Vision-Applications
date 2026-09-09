@@ -7,8 +7,7 @@ the same lineage.
 and running it), [cv-container-reference.md](cv-container-reference.md) §3
 (lineage), §12 (build/publish), §13 (WEDA deployment).
 
-> **Every command in this SOP runs in a shell on the edge device** — sit at it,
-> or `ssh adlk.edgedevice.2` (172.22.160.197, user `ubuntu`) first.
+> **Every command in this SOP runs in a shell on the edge device**
 
 ---
 
