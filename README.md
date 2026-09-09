@@ -74,8 +74,8 @@ Install these components on your Advantech device before using this toolkit.
 | cuDNN | 8.9.4+ |
 | TensorRT | 8.6.2+ |
 | OpenCV | 4.8+ |
-| Docker | 28.1.1 or later |
-| Docker Compose | 2.39.1 or later |
+| Docker | 27.5 |
+| Docker Compose | 2.39.1 |
 | NVIDIA Container Toolkit | 1.11.0 or later |
 
 Component versions depend on your **JetPack Version**. See [NVIDIA JetPack Documentation](https://developer.nvidia.com/embedded/jetpack) for package version and for installation please refer to [SDK Manager](https://developer.nvidia.com/sdk-manager).
