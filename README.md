@@ -99,7 +99,7 @@ The Docker container includes the following pre-configured components.
 
 Ensure the following prerequisites are met:
 
-- **Docker**: Version `28.1.1` or later
+- **Docker**: Version `27.5` or later
 - **Docker Compose**: Version `2.39.1` or later
 - **NVIDIA Container Toolkit**: Version `1.11.0` or later
 
