@@ -16,8 +16,8 @@ WEDA is unavailable or you are bisecting a problem.
 ## 1. Pre-flight — run these before touching a deployment
 
 ```bash
-export DEVICE=adlk.edgedevice.2          # ssh alias, 172.22.160.197, user ubuntu
-export DEVICE_ID=74fe488d5d54
+export DEVICE=<your_device_IP>
+export DEVICE_ID=<your_deive_mac_str> #74fe488d5d54
 ```
 
 | # | Check | Command | Expect |
