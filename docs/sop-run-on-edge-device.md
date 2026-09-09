@@ -1,6 +1,6 @@
 # SOP — Run the YOLO demo on an edge device
 
-**Applies to:** `adlk.edgedevice.2` (Jetson Orin, JetPack 6.2 / R36.4.4,
+**Applies to:** testing device (Jetson Orin, JetPack 6.2 / R36.4.4,
 deviceId `74fe488d5d54`) and any equivalently-provisioned WEDA device.
 **Audience:** whoever brings the showroom/trade-show display up and keeps it up.
 **Companion:** [sop-build-push-image.md](sop-build-push-image.md) (getting an
